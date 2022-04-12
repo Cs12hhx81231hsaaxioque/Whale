@@ -793,7 +793,7 @@ static void __dhmp_send_request_handler(struct dhmp_transport* rdma_trans, struc
 		case MICA_SET_REQUEST_TEST:
 			// do nothing
 			//ERROR_LOG("MICA_SET_REQUEST_TEST");
-			memmove(local_test_buff, local_test_buff, 65536);
+			//memmove(local_test_buff, local_test_buff, 65536);
 			resp = (struct post_datagram *) malloc(sizeof(struct post_datagram ));
 			memset(resp, 0, sizeof(struct post_datagram ));
 			resp->info_type = MICA_SET_RESPONSE_TEST;
@@ -1402,6 +1402,9 @@ dhmp_mica_get_MR_request_handler(struct dhmp_transport* rdma_trans,
 		return dhmp_mica_get_cli_MR_request_handler(rdma_trans, req);
 	else
 	{
+#ifdef RTT_TEST
+		return dhmp_mica_get_Mirr_MR_request_handler(rdma_trans, req);
+#endif
 		ERROR_LOG("dhmp_mica_get_MR_request_handler");
 		exit(-1);
 	}
@@ -1868,6 +1871,7 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 		case MICA_GET_CLIMR_REQUEST:
 		case MICA_SERVER_GET_CLINET_NODE_ID_REQUEST:
 		case MICA_REPLICA_UPDATE_REQUEST:
+		case MICA_SET_REQUEST_TEST:
 			// 非分区的操作就在主线程执行（可能的性能问题，也许需要一个专门的线程负责处理非分区的操作，但是非分区操作一般是初始化操作，对后续性能影响不明显）
 			__dhmp_send_request_handler(rdma_trans, msg, PARTITION_NUMS, &is_need_post_recv, &temp);
 			// msg->main_thread_set_id = -1;
@@ -1875,7 +1879,6 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 			*is_async = false;
 			Assert(is_need_post_recv == true);
 			break;
-		case MICA_SET_REQUEST_TEST:
 		case MICA_SET_REQUEST:
 			if (!is_cq_thread)
 			{

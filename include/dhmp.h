@@ -527,6 +527,7 @@ void exit_print_status();
 
 #define READ_AFTER_WRITE
 
+#define RTT_TEST
 
 
 #endif

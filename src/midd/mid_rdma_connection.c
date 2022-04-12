@@ -613,6 +613,27 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 
 	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_CONNECTED;
 
+#ifdef RTT_TEST
+	if (server_instance != NULL)
+	{
+		dcq_array[0] = rdma_trans->dcq;
+		total_cq_nums++;
+		cpu_set_t cpuset;
+		pthread_t cq_thread;
+		CPU_ZERO(&cpuset);
+		if (SERVER_ID < 4)
+			CPU_SET(PARTITION_NUMS+1, &cpuset);
+		else
+			CPU_SET(PARTITION_NUMS+1+20, &cpuset);
+		retval=pthread_create(&cq_thread, NULL, busy_wait_cq_handler, NULL);
+		if(retval)
+			handle_error_en(retval, "pthread_setaffinity_np");
+		retval = pthread_setaffinity_np(cq_thread, sizeof(cpu_set_t), &cpuset);
+		if (retval != 0)
+			handle_error_en(retval, "pthread_setaffinity_np");
+		cq_thread_stop_flag = false;
+	}
+#endif
 	// // 说明调用该函数的是服务端，此时需要向客户端确认客户端的 node_id 
 	// if (rdma_trans->node_id == -1)
 	// {
