@@ -453,8 +453,6 @@ typedef struct distrubute_job_thread_init_data
 
 // #define NIC_MULITI_THREAD
 
-#define CRAQ
-
 extern int thread_num;
 extern int __test_size;
 
@@ -470,6 +468,7 @@ extern struct dhmp_msg* get_msg_readonly[PARTITION_MAX_NUMS];
 
 extern double *pf_partition[PARTITION_MAX_NUMS];
 extern int *rand_num_partition[PARTITION_MAX_NUMS];
+extern int *write_num_partition[PARTITION_MAX_NUMS];
 extern int penalty_partition_count[PARTITION_MAX_NUMS];
 // #define PERF_TEST 1
 #define THROUGH_TEST 1
@@ -477,4 +476,8 @@ extern int penalty_partition_count[PARTITION_MAX_NUMS];
 // #define DHMP_POST_SEND_LATENCE 
 
 void exit_print_status();
+
+#define CRAQ 1
+
+
 #endif

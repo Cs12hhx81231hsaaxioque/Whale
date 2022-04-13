@@ -227,3 +227,91 @@ cmp_item_all_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_v
     }
     return re;
 }
+
+// struct BOX* box[PARTITION_MAX_NUMS];
+struct dhmp_msg** set_msgs_group;
+
+// void DO_READ()
+// {
+// if(box->needRTT == 0)
+// 	// normal_time_count_start;
+// 	;
+// 	//TODO:read from mica
+// if(box->needRTT == 0)
+// 	//normal_time_count_over;
+// 	;
+// else 
+// 	//special_time_count_over;
+// 	return;
+// }
+
+/***
+ * Whale: kind = 0 ;
+ * CRAQ: kind = 1;
+ * CHT: kind = 2;
+ *   current_node_number = [0 ~ total_node_number-1]
+ * return NULL means NO penalty;
+*/
+struct BOX* intial_box(int current_node_number, int total_node_number, int kind)
+{
+	int times = 0;
+	if(current_node_number == 0)
+		return Empty_pointer;
+	switch (kind)
+	{
+		case 0: times = (current_node_number - 1) + 2;
+		break;
+		case 1: times = (total_node_number - current_node_number)*2;
+		break;
+		case 2: times = 2;
+		break;
+		default :
+			return Empty_pointer;
+	}
+	times = (times)/2;//1.5==>1
+	
+	struct BOX * box = (struct BOX*) malloc(sizeof(struct BOX));
+	box->array = (TYPE_BOX *)malloc(times * sizeof(TYPE_BOX));
+	memset(box->array, 0, times * sizeof(TYPE_BOX));
+	box->length = times;
+	box->cur = -1;
+	box->total = 0;
+	box->needRTT = 0;
+	return box; 
+}
+
+/***
+ * value is acquired from each write operation
+*/
+void update_box(TYPE_BOX value, struct BOX * box)
+{
+	//find the same value already in the box and delete it
+	int i;
+	for(i =0;i < box->length;i++)
+	{
+		if(box->array[i] == value)
+		{
+			box->array[i] = 0;
+			box->total --;
+			break;
+		}
+	}
+	// put new value in box
+	box->cur = (box->cur + 1) % box->length;
+	if(box->array[box->cur] != 0)
+		box->total --;
+	box->array[box->cur] = value;
+	box->total ++;
+	return;
+}
+
+
+
+void print_box(struct BOX* box)
+{
+	int i = 0;
+	for(;i < box->length;i++)
+		printf("%d ",box->array[i]);
+	printf("cur = %d,length = %d %d\n",box->cur,box->length,box->total);
+}
+

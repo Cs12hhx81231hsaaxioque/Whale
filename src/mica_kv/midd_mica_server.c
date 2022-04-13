@@ -138,8 +138,8 @@ int main(int argc,char *argv[])
             else if(strcmp(argv[i], "0.2") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
-                read_num = 4;
-                update_num = 1;
+                read_num = 20;
+                update_num = 5;
                 penalty_wr_rate=0.2;
             }
             else if(strcmp(argv[i], "0.01") == 0)
@@ -281,7 +281,8 @@ int main(int argc,char *argv[])
     avg_partition_count_num = update_num /(int) PARTITION_NUMS;
 
     generate_test_data((size_t)0, (size_t)1, (size_t)__test_size , (size_t)TEST_KV_NUM);
-    generate_local_get_mgs_handler(read_num);
+    if (!is_all_set_all_get)
+        generate_local_get_mgs_handler((size_t)read_num);
 
     next_node_mappings = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
     memset(next_node_mappings, 0, sizeof(struct replica_mappings));
@@ -415,11 +416,14 @@ void generate_local_get_mgs_handler(size_t avg_parition_read_max_length)
         case UNIFORM:
             break;
         case ZIPFIAN:
-            for(i=0; i<PARTITION_NUMS;i++)
+            for(i=0; i<(int)PARTITION_NUMS;i++)
             {
-                pf_partition[i] = (double *)malloc(sizeof(double) * avg_parition_read_max_length);
-                rand_num_partition[i] =  (int *)malloc(sizeof(int) * avg_parition_read_max_length);
-                pick_zipfian(pf_partition[i], rand_num_partition[i] , avg_parition_read_max_length);
+                pf_partition[i] = (double *)malloc(sizeof(double)  * (size_t)update_num);
+                rand_num_partition[i] =  (int *)malloc(sizeof(int) * (size_t)update_num);
+                write_num_partition[i] = (int *)malloc(sizeof(int) * (size_t)update_num);
+
+                pick_zipfian(pf_partition[i], rand_num_partition[i] , (int)update_num);
+                pick_zipfian(pf_partition[i], write_num_partition[i] , (int)update_num);
             }
             break;
         default:
@@ -448,7 +452,6 @@ void set_workloada_server()
         dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async, false);
 	}
     sleep(3);
-    exit(0);
 }
 
 // 测试所有节点中的数据必须一致
