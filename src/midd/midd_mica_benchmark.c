@@ -16,30 +16,31 @@ int __test_size;
 int __access_num=0;
 int read_num, update_num;
 int end_round=0;
-bool get_is_more;
 int op_gaps[4];
 int little_idx;
 bool is_all_set_all_get =false;
 
-enum WORK_LOAD_DISTRIBUTED workload_type;
-
 int main_node_is_readable;
-const double A = 1.3;  
-const double C = 1.0;  
-double pf[TEST_KV_NUM]; 
-int rand_num[TEST_KV_NUM]={0};
+enum WORK_LOAD_DISTRIBUTED workload_type;
 struct test_kv kvs_group[TEST_KV_NUM];
 
+const double A = 1.3;  
+const double C = 1.0;  
+//double pf[TEST_KV_NUM]; 
+// int rand_num[TEST_KV_NUM]={0};
+
+int * read_num_penalty=NULL;
+
 // 生成符合Zipfian分布的数据
-void generate_zipfian()
+void generate_zipfian(double pf[], size_t nums)
 {
     int i;
     double sum = 0.0;
  
-    for (i = 0; i < TEST_KV_NUM; i++)
+    for (i = 0; i < nums; i++)
         sum += C/pow((double)(i+2), A);
 
-    for (i = 0; i < TEST_KV_NUM; i++)
+    for (i = 0; i < nums; i++)
     {
         if (i == 0)
             pf[i] = C/pow((double)(i+2), A)/sum;
@@ -49,11 +50,11 @@ void generate_zipfian()
 }
 
 // 根据Zipfian分布生成索引
-void pick_zipfian(int max_num)
+void pick_zipfian(double pf[], int rand_num[], int max_num)
 {
 	int i, index;
 
-    generate_zipfian();
+    generate_zipfian(pf, max_num);
 
     srand(time(0));
     for ( i= 0; i < max_num; i++)
@@ -63,10 +64,12 @@ void pick_zipfian(int max_num)
         while (index<(max_num)&&data > pf[index])   
             index++;
 		rand_num[i]=index;
+       // printf("%d ", rand_num[i]);
     }
+    //printf("\n");
 }
 
-void pick_uniform(int max_num)
+void pick_uniform(double pf[], int rand_num[], int max_num)
 {
 	int i, rand_idx, tmp;
 
@@ -88,19 +91,14 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
 {
     size_t i,j;
     int partition_id;
-    // struct test_kv *kvs_group;
-    // kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * kv_nums);
+    //struct test_kv *kvs_group;
+    //kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * kv_nums);
     memset(kvs_group, 0, sizeof(struct test_kv) * kv_nums);
 
     for (i = 0; i < kv_nums; i++)
     {
         size_t key = i;
         key = key << 16;
-        // size_t key = 314156;
-        // size_t value = i + offset;
-        // uint64_t key_hash = hash((const uint8_t *)&key, sizeof(key));
-        // value_length = sizeof(value) > value_length ? sizeof(value) : value_length;
-
 
         kvs_group[i].true_key_length = sizeof(key);
         kvs_group[i].true_value_length = value_length;
@@ -108,17 +106,14 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
         kvs_group[i].value = (uint8_t*) malloc(kvs_group[i].true_value_length);
         kvs_group[i].key_hash = hash(kvs_group[i].key, kvs_group[i].true_key_length );
 
- 
         // 注意我们 get 回来的数据需要  考虑到 header 和 tail 的大小
         for (j=0; j<1; j++) // 暂时只开一个缓冲区
             kvs_group[i].get_value[j] = (uint8_t*) malloc(kvs_group[i].true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
 
         memset(kvs_group[i].value, (int)(i+val_offset), kvs_group[i].true_value_length);
         memcpy(kvs_group[i].key, &key, kvs_group[i].true_key_length);
-        // memcpy(kvs_group[i].value, &value, kvs_group[i].true_value_length);
-        
+
         partition_id = *((size_t*)kvs_group[i].key)  % (PARTITION_NUMS);
-        //ERROR_LOG("Hash code %x, partition_id: [%d]", kvs_group[i].key_hash, partition_id);
     }
 
     return kvs_group;
@@ -232,3 +227,91 @@ cmp_item_all_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_v
     }
     return re;
 }
+
+// struct BOX* box[PARTITION_MAX_NUMS];
+struct dhmp_msg** set_msgs_group;
+
+// void DO_READ()
+// {
+// if(box->needRTT == 0)
+// 	// normal_time_count_start;
+// 	;
+// 	//TODO:read from mica
+// if(box->needRTT == 0)
+// 	//normal_time_count_over;
+// 	;
+// else 
+// 	//special_time_count_over;
+// 	return;
+// }
+
+/***
+ * Whale: kind = 0 ;
+ * CRAQ: kind = 1;
+ * CHT: kind = 2;
+ *   current_node_number = [0 ~ total_node_number-1]
+ * return NULL means NO penalty;
+*/
+struct BOX* intial_box(int current_node_number, int total_node_number, int kind)
+{
+	int times = 0;
+	if(current_node_number == 0)
+		return Empty_pointer;
+	switch (kind)
+	{
+		case 0: times = (current_node_number - 1) + 2;
+		break;
+		case 1: times = (total_node_number - current_node_number)*2;
+		break;
+		case 2: times = 2;
+		break;
+		default :
+			return Empty_pointer;
+	}
+	times = (times)/2;//1.5==>1
+	
+	struct BOX * box = (struct BOX*) malloc(sizeof(struct BOX));
+	box->array = (TYPE_BOX *)malloc(times * sizeof(TYPE_BOX));
+	memset(box->array, 0, times * sizeof(TYPE_BOX));
+	box->length = times;
+	box->cur = -1;
+	box->total = 0;
+	box->needRTT = 0;
+	return box; 
+}
+
+/***
+ * value is acquired from each write operation
+*/
+void update_box(TYPE_BOX value, struct BOX * box)
+{
+	//find the same value already in the box and delete it
+	int i;
+	for(i =0;i < box->length;i++)
+	{
+		if(box->array[i] == value)
+		{
+			box->array[i] = 0;
+			box->total --;
+			break;
+		}
+	}
+	// put new value in box
+	box->cur = (box->cur + 1) % box->length;
+	if(box->array[box->cur] != 0)
+		box->total --;
+	box->array[box->cur] = value;
+	box->total ++;
+	return;
+}
+
+
+
+void print_box(struct BOX* box)
+{
+	int i = 0;
+	for(;i < box->length;i++)
+		printf("%d ",box->array[i]);
+	printf("cur = %d,length = %d %d\n",box->cur,box->length,box->total);
+}
+
