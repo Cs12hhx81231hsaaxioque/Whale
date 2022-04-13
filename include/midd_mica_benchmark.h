@@ -69,3 +69,4 @@ extern long long int total_through_time;
 extern bool partition_count_set_done_flag[PARTITION_MAX_NUMS];
 extern int partition_set_count[PARTITION_MAX_NUMS];
 extern int partition_get_count[PARTITION_MAX_NUMS + 1];
+extern int read_dirty_count[PARTITION_MAX_NUMS];

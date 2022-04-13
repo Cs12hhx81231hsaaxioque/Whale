@@ -96,10 +96,15 @@ void dhmp_comp_channel_handler()
 						ERROR_LOG("partition[%d] get count [%d]",i, partition_get_count[i]);
 						total_get_ops_num+=partition_get_count[i];
 					}
+					// for (i=0; i<(int)PARTITION_NUMS+1; i++)
+					// {
+					// 	ERROR_LOG("penalty_partition_count[%d] get count [%d]",i, penalty_partition_count[i]);
+					// 	total_penalty_num+=penalty_partition_count[i];
+					// }
 					for (i=0; i<(int)PARTITION_NUMS+1; i++)
 					{
-						ERROR_LOG("penalty_partition_count[%d] get count [%d]",i, penalty_partition_count[i]);
-						total_penalty_num+=penalty_partition_count[i];
+						ERROR_LOG("read_dirty_count[%d] get count [%d]",i, read_dirty_count[i]);
+						total_penalty_num+=read_dirty_count[i];
 					}
 					ERROR_LOG("Local total_ops_num is [%d], read_count is [%d], total_get_ops_num is [%d], total_penalty_num is [%d]", total_ops_num,total_ops_num-update_num, total_get_ops_num, total_penalty_num);
 					exit(0);

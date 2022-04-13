@@ -88,7 +88,7 @@ int *rand_num_partition[PARTITION_MAX_NUMS];
 int *write_num_partition[PARTITION_MAX_NUMS];
 double penalty_rw_rate;
 int penalty_count[PARTITION_MAX_NUMS]={0};
-
+int read_dirty_count[PARTITION_MAX_NUMS]={0};
 static void 
 dhmp_get_dirty_response_handler(struct dhmp_msg* msg)
 {
@@ -1360,6 +1360,7 @@ void* mica_work_thread(void *data)
 	partition_set_count[partition_id] = 0;
 	partition_get_count[partition_id] = 0;
 	penalty_partition_count[partition_id] = 0;
+	read_dirty_count[partition_id] = 0;
 
 	switch (type)
 	{
@@ -1433,6 +1434,9 @@ void* mica_work_thread(void *data)
 								read_in_this_term = finish_read(box_item, partition_id, need_read, thread_get_counts);
 								thread_get_counts += read_in_this_term;
 								need_read -= read_in_this_term;
+
+								if (need_read != 0)
+									read_dirty_count[partition_id] += 1;
 							}
 						}
 
@@ -1444,6 +1448,9 @@ void* mica_work_thread(void *data)
 							read_in_this_term = finish_read(box_item, partition_id, need_read, thread_get_counts);
 							thread_get_counts += read_in_this_term;
 							need_read -= read_in_this_term;
+
+							if (need_read != 0)
+								read_dirty_count[partition_id] += 1;
 						}
 					}
 					thread_set_counts++;
