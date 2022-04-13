@@ -44,3 +44,28 @@ bool  cmp_item_value(size_t a_value_length, const uint8_t *a_out_value, size_t b
 void dump_value_by_addr(const uint8_t * value, size_t value_length);
 bool cmp_item_all_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value_length,const uint8_t *b_out_value);
 
+
+#define TYPE_BOX int
+#define Empty_pointer NULL
+
+struct BOX{
+	TYPE_BOX* array;
+	int length;
+	int cur;
+	int total;
+	int needRTT;
+};
+
+// void DO_READ();
+struct BOX* intial_box(int current_node_number, int total_node_number, int kind);
+void update_box(TYPE_BOX value, struct BOX * box);
+//int finish_read(TYPE_BOX * value_array, int array_length, struct BOX* box);
+void print_box(struct BOX* box);
+
+// extern struct BOX* box[PARTITION_MAX_NUMS];
+extern struct dhmp_msg** set_msgs_group;
+extern struct timespec start_through, end_through;
+extern long long int total_through_time;
+extern bool partition_count_set_done_flag[PARTITION_MAX_NUMS];
+extern int partition_set_count[PARTITION_MAX_NUMS];
+extern int partition_get_count[PARTITION_MAX_NUMS + 1];

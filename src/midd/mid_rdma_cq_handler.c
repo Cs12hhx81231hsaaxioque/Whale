@@ -11,6 +11,9 @@
 #include "dhmp_log.h"
 #include "dhmp_dev.h"
 #include "dhmp_server.h"
+#include "midd_mica_benchmark.h"
+
+
 struct dhmp_cq* dcq_array[MAX_CQ_NUMS];
 int total_cq_nums=0;
 bool cq_thread_is_launch=false;
@@ -59,6 +62,48 @@ void dhmp_comp_channel_handler()
 					dhmp_wc_success_handler(&wc);
 				else
 					dhmp_wc_error_handler(&wc);
+			}
+
+			if (server_instance->server_id != 0 && set_counts == update_num)
+			{
+				if (set_counts ==1)
+					clock_gettime(CLOCK_MONOTONIC, &start_through);  
+				else
+				{
+					int i;
+					bool done_flag;
+					while (true)
+					{
+						done_flag = true;
+						for (i=0; i<PARTITION_NUMS; i++)
+							done_flag &= partition_count_set_done_flag[i];
+						
+						if (done_flag)
+							break;
+					}
+					clock_gettime(CLOCK_MONOTONIC, &end_through); 
+					total_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
+					ERROR_LOG("set op count [%d], total op count [%d] total time is [%d] us", set_counts, __access_num, total_through_time / 1000);
+					size_t total_ops_num=0, total_get_ops_num=0, total_penalty_num=0;
+
+					for (i=0; i<(int)PARTITION_NUMS; i++)
+					{
+						ERROR_LOG("partition[%d] set count [%d]",i, partition_set_count[i]);
+						total_ops_num+=partition_set_count[i];
+					}
+					for (i=0; i<(int)PARTITION_NUMS+1; i++)
+					{
+						ERROR_LOG("partition[%d] get count [%d]",i, partition_get_count[i]);
+						total_get_ops_num+=partition_get_count[i];
+					}
+					for (i=0; i<(int)PARTITION_NUMS+1; i++)
+					{
+						ERROR_LOG("penalty_partition_count[%d] get count [%d]",i, penalty_partition_count[i]);
+						total_penalty_num+=penalty_partition_count[i];
+					}
+					ERROR_LOG("Local total_ops_num is [%d], read_count is [%d], total_get_ops_num is [%d], total_penalty_num is [%d]", total_ops_num,total_ops_num-update_num, total_get_ops_num, total_penalty_num);
+					exit(0);
+				}
 			}
 		}
 	}

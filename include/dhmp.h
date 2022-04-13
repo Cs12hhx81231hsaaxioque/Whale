@@ -514,6 +514,7 @@ extern struct dhmp_msg* get_msg_readonly[PARTITION_MAX_NUMS];
 extern void* penalty_addr;
 extern double *pf_partition[PARTITION_MAX_NUMS];
 extern int *rand_num_partition[PARTITION_MAX_NUMS];
+extern int *write_num_partition[PARTITION_MAX_NUMS];
 extern int penalty_partition_count[PARTITION_MAX_NUMS];
 void exit_print_status();
 
@@ -525,9 +526,10 @@ void exit_print_status();
 
 // #define TEST_CPU_BUSY_WORKLOAD
 
-#define READ_AFTER_WRITE
+// #define READ_AFTER_WRITE
 
-#define RTT_TEST
+// #define RTT_TEST
 
+#define WHALE 0
 
 #endif

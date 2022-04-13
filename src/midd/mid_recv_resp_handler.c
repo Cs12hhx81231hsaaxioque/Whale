@@ -85,6 +85,7 @@ void* penalty_addr;
 int penalty_partition_count[PARTITION_MAX_NUMS];
 double *pf_partition[PARTITION_MAX_NUMS];
 int *rand_num_partition[PARTITION_MAX_NUMS];
+int *write_num_partition[PARTITION_MAX_NUMS];
 double penalty_rw_rate;
 int penalty_count[PARTITION_MAX_NUMS]={0};
 
@@ -448,29 +449,29 @@ dhmp_mica_get_request_handler(struct post_datagram *req, size_t partition_id)
 		server_instance->server_id !=1 &&
 		server_instance->server_id !=2)
 	{
-		int penalty_rate = (int) ( (double)SERVER_ID * 0.00028 * penalty_rw_rate * (double)read_num);
-		int penalty_num = rand_num_partition[partition_id][partition_get_id];
-		if (penalty_rw_rate==0.01)
-			penalty_rate = 1;
-		if (penalty_num < penalty_rate)
-		{
-			if (server_instance->config.nets_cnt == 7)
-			{
-				if (penalty_count[partition_id] <=20) 
-					usleep(1);
-				penalty_count[partition_id]++;
-			}
-			else
-			{
-				if (penalty_rw_rate==0.01)
-				{
-					if (penalty_count[partition_id] <=200) 
-						usleep(1);
-					penalty_count[partition_id]++;
-				}
-				else
-					usleep(1);
-			}
+		// int penalty_rate = (int) ( (double)SERVER_ID * 0.00028 * penalty_rw_rate * (double)read_num);
+		// int penalty_num = rand_num_partition[partition_id][partition_get_id];
+		// if (penalty_rw_rate==0.01)
+		// 	penalty_rate = 1;
+		// if (penalty_num < penalty_rate)
+		// {
+		// 	if (server_instance->config.nets_cnt == 7)
+		// 	{
+		// 		if (penalty_count[partition_id] <=20) 
+		// 			usleep(1);
+		// 		penalty_count[partition_id]++;
+		// 	}
+		// 	else
+		// 	{
+		// 		if (penalty_rw_rate==0.01)
+		// 		{
+		// 			if (penalty_count[partition_id] <=200) 
+		// 				usleep(1);
+		// 			penalty_count[partition_id]++;
+		// 		}
+		// 		else
+		// 			usleep(1);
+		// 	}
 
 			/*
 			penalty_partition_count[partition_id]++;
@@ -520,7 +521,7 @@ dhmp_mica_get_request_handler(struct post_datagram *req, size_t partition_id)
 			//ERROR_LOG("penalty is ok! partition_id[%d]", partition_id);
 			free(req_to_main);
 			*/
-		}
+		//}
 	}
 
 	struct mehcached_table *table = &table_o;
@@ -1245,7 +1246,7 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 		// MICA_TIME_COUNTER_INIT();
 		for (;;)
 		{
-			if (partition_work_nums[partition_id] <= 50  || retry_count >=500 )
+			if (partition_work_nums[partition_id] <= 5  || retry_count >=500 )
 				break;
 			else
 				retry_count++;
@@ -1278,10 +1279,52 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 	// }
 }
 
+/***
+* value_array is read operations between two writes
+* array_length is the length of value_array
+* 
+* return the number of finished read in this term
+*/
+
+static int finish_read(struct BOX* box_item, int partition_id, int need_read, int current_read)
+{
+	int i,j;
+	bool need_post_recv;
+	bool is_set;
+
+	if(box_item == NULL || box_item->total == 0)
+	{ 
+		for(j=0; j < need_read ;j++)
+			__dhmp_wc_recv_handler(NULL, get_msg_readonly[partition_id], partition_id, &need_post_recv, &is_set);
+		return need_read;
+	}
+
+	for(j = 0;j < need_read ;j++)
+	{
+		for(i = 0; i < box_item->length ;i++)
+		{
+			if(box_item->array[i] == 0) continue;
+			if(box_item->array[i] == rand_num_partition[partition_id][current_read + j])
+			{
+				box_item->array[i] = 0;
+				box_item->total --;
+				box_item->needRTT = 1;
+				if(box_item->needRTT == 1)
+					//special_time_count_start;
+					;
+				return j;
+			}
+		}
+
+		__dhmp_wc_recv_handler(NULL, get_msg_readonly[partition_id], partition_id, &need_post_recv, &is_set);
+	}
+	return need_read;
+}
+
 void* mica_work_thread(void *data)
 {
 	DEFINE_STACK_TIMER();
-	int partition_id, i;
+	int partition_id, i, j;
 	enum dhmp_msg_type type;
 	volatile uint64_t * lock;
 	thread_init_data * init_data = (thread_init_data*) data;
@@ -1293,10 +1336,26 @@ void* mica_work_thread(void *data)
 	int retry_time=0;
 	pid_t pid = gettid();
 	pthread_t tid = pthread_self();
+	int thread_set_counts = 0;
 	int thread_get_counts =0;
+	int need_read=0;
+	struct BOX* box_item;
+
+	if (server_instance->server_id != 0)
+	{
+		box_item = intial_box((int)server_instance->server_id, server_instance->config.nets_cnt, WHALE);
+		if(box_item == NULL)
+		{
+			ERROR_LOG("Init box failed!");
+			exit(-1);
+		}
+	}
+	else
+		box_item=NULL;
 
 	ERROR_LOG("Pid [%d] Tid [%ld]", pid, tid);
 	partition_id = init_data->partition_id;
+
 	type = init_data->thread_type;
 	partition_set_count[partition_id] = 0;
 	partition_get_count[partition_id] = 0;
@@ -1322,7 +1381,7 @@ void* mica_work_thread(void *data)
 	while (true)
 	{
 		//memory_barrier();
-		if (partition_work_nums[partition_id] >50  || retry_time >= 1000)
+		if (partition_work_nums[partition_id] >5  || retry_time >= 1000)
 		{
 			retry_time =0;
 			// 如果写入完成标志位不是由一个 memcpy 完成的，那么需要用 barrier 保证写的顺序
@@ -1362,26 +1421,32 @@ void* mica_work_thread(void *data)
 					if (!(server_instance->server_id == 0 && !main_node_is_readable) &&
 						!is_all_set_all_get)
 					{
-						int op_gap;
+						int op_gap, read_in_this_term = 0;
+						update_box(write_num_partition[partition_id][thread_set_counts], box_item);
+
 						for (i=little_idx; i<end_round; i++)
 						{
 							op_gap = op_gaps[i];
-							if (thread_get_counts % op_gap == 0)
+							if (thread_set_counts % op_gap == 0)
 							{
-								__dhmp_wc_recv_handler(NULL, get_msg_readonly[partition_id], partition_id, &need_post_recv, &is_set);
-								thread_get_counts++;
+								need_read += 1;
+								read_in_this_term = finish_read(box_item, partition_id, need_read, thread_get_counts);
+								thread_get_counts += read_in_this_term;
+								need_read -= read_in_this_term;
 							}
 						}
 
 						if (little_idx != 0)
 						{
-							op_gap = op_gaps[little_idx-1];
 							// get操作如果多，只能使用for循环自己触发
-							int count=thread_get_counts+op_gap;
-							for(; thread_get_counts<count; thread_get_counts++)
-								__dhmp_wc_recv_handler(NULL, get_msg_readonly[partition_id], partition_id, &need_post_recv, &is_set);
+							op_gap = op_gaps[little_idx-1];
+							need_read += op_gap;
+							read_in_this_term = finish_read(box_item, partition_id, need_read, thread_get_counts);
+							thread_get_counts += read_in_this_term;
+							need_read -= read_in_this_term;
 						}
 					}
+					thread_set_counts++;
 				}
 			}
 			// 将本地头节点重置为空
@@ -1488,6 +1553,7 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 
 	// 副本节点先向 主节点 发送回复，节约一次 RTT 的时间
 	// 主节点向客户端发送回复
+	partition_set_count[req_info->partition_id]++;
 	if (!IS_MAIN(server_instance->server_type))
 	{
 		struct dhmp_task *send_task_ptr;
@@ -1597,14 +1663,12 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 		// 						req_info->partition_id);
 		// if (req_info->partition_id==0)
 		// 	MICA_TIME_COUNTER_CAL("[None]->[makeup_update_request]");
-		partition_set_count[req_info->partition_id]++;
-
-		if (partition_set_count[req_info->partition_id] == avg_partition_count_num)
-		{
-			partition_count_set_done_flag[req_info->partition_id] = true;
-		}
 	}
-	INFO_LOG("set end");
+
+	if (partition_set_count[req_info->partition_id] == avg_partition_count_num)
+	{
+		partition_count_set_done_flag[req_info->partition_id] = true;
+	}
 #ifdef MAIN_LOG_DEBUG_LATENCE
 		if (server_instance->server_id == 0  &&
 			req_info->partition_id == 0)
@@ -1880,66 +1944,73 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 			Assert(is_need_post_recv == true);
 			break;
 		case MICA_SET_REQUEST:
-			if (!is_cq_thread)
+			if (server_instance->server_id ==0 && !is_cq_thread)
 			{
 				set_counts++;
 				is_get=false;
 			}
+
+			if (server_instance->server_id !=0 && is_cq_thread)
+			{
+				set_counts++;
+				is_get=false;
+			}
+
 		case MICA_GET_REQUEST:
 			// 分区的操作需要分布到特定的线程去执行
 #ifdef THROUGH_TEST
-			if (!is_cq_thread && set_counts ==1)
-			{
-				partition_get_count[PARTITION_NUMS]=0;
+			if (server_instance->server_id ==0 && !is_cq_thread && set_counts ==1)
 				clock_gettime(CLOCK_MONOTONIC, &start_through);  
-			}
+
+			if (server_instance->server_id !=0 && is_cq_thread && set_counts ==1)
+				clock_gettime(CLOCK_MONOTONIC, &start_through); 
 #endif
-			if (!is_cq_thread && !is_get)
+			if (server_instance->server_id ==0 && !is_cq_thread && !is_get)
 				msg->main_thread_set_id = set_counts; 	// 必须在主线程设置全局唯一的 set_id
+			
+			if (server_instance->server_id !=0 && is_cq_thread &&  !is_get)
+				msg->main_thread_set_id = set_counts; 
 
 			// 不要忘记执行作为触发者的set
 			distribute_partition_resp(get_req_partition_id(req), rdma_trans, msg, time_start1, time_start2);
 
 #ifdef THROUGH_TEST
 			// 在增加dirty请求后，为了防止 cq 轮询线程死锁，需要区分主进程和cq轮询线程的调用
-			if (!is_cq_thread)
+			if ( (server_instance->server_id == 0 && set_counts == update_num && !is_cq_thread) )
 			{
-				if (server_instance->server_id == 0 && set_counts == update_num)
+				bool done_flag;
+				while (true)
 				{
-					bool done_flag;
-					while (true)
-					{
-						done_flag = true;
-						for (i=0; i<PARTITION_NUMS; i++)
-							done_flag &= partition_count_set_done_flag[i];
-						
-						if (done_flag)
-							break;
-					}
-
-					clock_gettime(CLOCK_MONOTONIC, &end_through); 
-					total_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
-					ERROR_LOG("set op count [%d], total op count [%d] total time is [%d] us", set_counts, __access_num, total_through_time / 1000);
-					size_t total_ops_num=0, total_get_ops_num=0, total_penalty_num=0;
-
-					for (i=0; i<(int)PARTITION_NUMS; i++)
-					{
-						ERROR_LOG("partition[%d] set count [%d]",i, partition_set_count[i]);
-						total_ops_num+=partition_set_count[i];
-					}
-					for (i=0; i<(int)PARTITION_NUMS+1; i++)
-					{
-						ERROR_LOG("partition[%d] get count [%d]",i, partition_get_count[i]);
-						total_get_ops_num+=partition_get_count[i];
-					}
-					for (i=0; i<(int)PARTITION_NUMS+1; i++)
-					{
-						ERROR_LOG("penalty_partition_count[%d] get count [%d]",i, penalty_partition_count[i]);
-						total_penalty_num+=penalty_partition_count[i];
-					}
-					ERROR_LOG("Local total_ops_num is [%d], read_count is [%d], total_get_ops_num is [%d], total_penalty_num is [%d]", total_ops_num,total_ops_num-update_num, total_get_ops_num, total_penalty_num);
-
+					done_flag = true;
+					for (i=0; i<PARTITION_NUMS; i++)
+						done_flag &= partition_count_set_done_flag[i];
+					
+					if (done_flag)
+						break;
 				}
+
+				clock_gettime(CLOCK_MONOTONIC, &end_through); 
+				total_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
+				ERROR_LOG("set op count [%d], total op count [%d] total time is [%d] us", set_counts, __access_num, total_through_time / 1000);
+				size_t total_ops_num=0, total_get_ops_num=0, total_penalty_num=0;
+
+				for (i=0; i<(int)PARTITION_NUMS; i++)
+				{
+					ERROR_LOG("partition[%d] set count [%d]",i, partition_set_count[i]);
+					total_ops_num+=partition_set_count[i];
+				}
+				for (i=0; i<(int)PARTITION_NUMS+1; i++)
+				{
+					ERROR_LOG("partition[%d] get count [%d]",i, partition_get_count[i]);
+					total_get_ops_num+=partition_get_count[i];
+				}
+				for (i=0; i<(int)PARTITION_NUMS+1; i++)
+				{
+					ERROR_LOG("penalty_partition_count[%d] get count [%d]",i, penalty_partition_count[i]);
+					total_penalty_num+=penalty_partition_count[i];
+				}
+				ERROR_LOG("Local total_ops_num is [%d], read_count is [%d], total_get_ops_num is [%d], total_penalty_num is [%d]", total_ops_num,total_ops_num-update_num, total_get_ops_num, total_penalty_num);
+
 			}
 #endif
 			*is_async = true;

@@ -109,8 +109,16 @@ if(NOT "${NLOCAL}" STREQUAL "yes")
 	# add_executable(microbench microbench.c ${SOURCES})
 	# target_link_libraries(microbench ${LIBRARIES})
 	# MESSAGE("MIDD_MICA_LIB_SRCS: ${MIDD_MICA_LIB_SRCS}")
-	add_executable(test_RTT test_RTT.c ${SOURCES})
-	target_link_libraries(test_RTT ${LIBRARIES})
+
+
+
+
+	# add_executable(test_RTT test_RTT.c ${SOURCES})
+	# target_link_libraries(test_RTT ${LIBRARIES})
+
+
+
+
 	# target_link_libraries(ibtest xml2)
 	# target_link_libraries(ibtest pthread)
 	# target_link_libraries(ibtest rdmacm)
