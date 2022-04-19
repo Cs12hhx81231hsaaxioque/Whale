@@ -980,7 +980,7 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 	send_wr.wr.rdma.rkey  		= mirror_node_mapping[partition_id].mirror_mr.rkey;
 
 	sge.addr  =	(uintptr_t)(trans->send_mr[partition_id].addr);
-	sge.length=	req_info->value_length;
+	sge.length=	req_info->value_length * CLINET_NUMS;
 	sge.lkey  =	trans->send_mr[partition_id].mr->lkey;
 	reval=ibv_post_send ( trans->qp, &send_wr, &bad_wr );
 	if ( reval )
@@ -996,7 +996,7 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 	struct dhmp_msg msg;
 	struct dhmp_task *send_task_ptr;
 	msg.data = req_msg;
-	msg.data_size = total_length;
+	msg.data_size = total_length * CLINET_NUMS;
 	msg.msg_type = DHMP_MICA_SEND_INFO_REQUEST;
 	send_task_ptr=dhmp_send_task_create(trans, &msg, partition_id);
 	if(!send_task_ptr)
@@ -1423,7 +1423,8 @@ void* mica_work_thread(void *data)
 						!is_all_set_all_get)
 					{
 						int op_gap, read_in_this_term = 0;
-						update_box(write_num_partition[partition_id][thread_set_counts], box_item);
+						if (box_item != NULL)
+							update_box(write_num_partition[partition_id][thread_set_counts], box_item);
 
 						for (i=little_idx; i<end_round; i++)
 						{
@@ -1504,6 +1505,8 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 	struct dhmp_msg *resp_msg_ptr;
 	size_t reuse_length; 
 	int reval;
+	int set_id;
+	int i;
 
 	void * key_addr;
 	void * value_addr;
@@ -1540,18 +1543,21 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 		main_node_broadcast_matedata(req_info, req, reuse_length);
 
 	// MICA_TIME_COUNTER_INIT();
-	item = mehcached_set(req_info->current_alloc_id,
-						table,
-						req_info->key_hash,
-						key_addr,
-						req_info->key_length,
-						value_addr,
-						req_info->value_length,
-						req_info->expire_time,
-						req_info->overwrite,
-						&is_update,
-						&is_maintable,
-						NULL);
+	for (i=0; i<CLINET_NUMS; i++)
+	{
+		item = mehcached_set(req_info->current_alloc_id,
+							table,
+							req_info->key_hash,
+							key_addr,
+							req_info->key_length,
+							value_addr,
+							req_info->value_length,
+							req_info->expire_time,
+							req_info->overwrite,
+							&is_update,
+							&is_maintable,
+							NULL);
+	}
 
 	// if (req_info->partition_id==0)
 	// 	MICA_TIME_COUNTER_CAL("[set]->[mehcached_set]");
@@ -1561,6 +1567,7 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 	// 副本节点先向 主节点 发送回复，节约一次 RTT 的时间
 	// 主节点向客户端发送回复
 	partition_set_count[req_info->partition_id]++;
+	set_id = partition_set_count[req_info->partition_id];
 	if (!IS_MAIN(server_instance->server_type))
 	{
 		struct dhmp_task *send_task_ptr;
@@ -1646,6 +1653,8 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 	{
 		size_t item_offset;
 		INFO_LOG("main_node_broadcast_matedata_wait");
+
+#ifdef WAIT_RETURN
 		if (item != NULL)
 			main_node_broadcast_matedata_wait(req_info, req_info->partition_id, item);
 		else
@@ -1654,7 +1663,7 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 					server_instance->server_id, req_info->key_hash);
 			exit(-1);
 		}
-
+#endif
 		if (is_maintable)
 			item_offset = get_offset_by_item(main_table, item);
 		else
@@ -1730,6 +1739,7 @@ dhmp_mica_mirror_set_request_handler(struct dhmp_transport* rdma_trans, uint32_t
 	resp->info_length = resp_len;
 	resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
 
+	partition_set_count[partition_id]++;
 	resp_msg_ptr = make_basic_msg(&resp_msg, resp);
 	dhmp_post_send(rdma_trans, resp_msg_ptr, (size_t)partition_id);
 	INFO_LOG("mirror set");

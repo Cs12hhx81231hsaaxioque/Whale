@@ -532,4 +532,8 @@ void exit_print_status();
 
 #define WHALE 0
 
+#define CLINET_NUMS 3
+
+#define WAIT_RETURN
+
 #endif

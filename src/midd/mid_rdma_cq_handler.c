@@ -64,7 +64,9 @@ void dhmp_comp_channel_handler()
 					dhmp_wc_error_handler(&wc);
 			}
 
-			if (server_instance->server_id != 0 && set_counts == update_num)
+			if (server_instance->server_id != 0 && 
+				!is_all_set_all_get && 
+				set_counts == update_num)
 			{
 				if (set_counts ==1)
 					clock_gettime(CLOCK_MONOTONIC, &start_through);  
