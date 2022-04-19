@@ -479,5 +479,10 @@ void exit_print_status();
 
 #define CRAQ 1
 
+#define CLINET_NUMS 1
+
+#define WAIT_RETURN
+
+// #define TEST_CPU_BUSY_WORKLOAD
 
 #endif

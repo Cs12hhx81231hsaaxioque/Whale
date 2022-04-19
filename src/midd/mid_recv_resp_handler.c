@@ -748,6 +748,26 @@ make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp, enum dhmp_
 	return res_msg;
 }
 
+// CPU负载
+pthread_t busy_cpu_workload_threads[PARTITION_MAX_NUMS][PARTITION_MAX_NUMS];
+void* mica_busy_cpu_workload_work_thread(void *data);
+
+void* mica_busy_cpu_workload_work_thread(void *data)
+{
+	struct timespec start, end;
+	long long mica_total_time_ns;
+	// pid_t pid = gettid();
+	// pthread_t tid = pthread_self();
+	// ERROR_LOG("Pid [%d] Tid [%ld]", pid, tid);
+	while(true)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &start);
+		clock_gettime(CLOCK_MONOTONIC, &end);
+		mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec));
+	}
+}
+
+
 int init_mulit_server_work_thread()
 {
 	bool recv_mulit_threads_enable=true;
@@ -784,6 +804,27 @@ int init_mulit_server_work_thread()
 		if (retval != 0)
 			handle_error_en(retval, "pthread_setaffinity_np");
 		INFO_LOG("set affinity cpu [%d] to thread [%d]", i, i);
+#ifdef TEST_CPU_BUSY_WORKLOAD
+		if (SERVER_ID == 1)
+		{
+			int j=0;
+			if (i == 2 || i== 4)
+			{
+				for (j=0; j<1; j++)
+				{
+					retval=pthread_create(&busy_cpu_workload_threads[i][j], NULL, mica_busy_cpu_workload_work_thread, (void*)data);
+					if(retval)
+					{
+						ERROR_LOG("pthread create error.");
+						return -1;
+					}
+					retval = pthread_setaffinity_np(busy_cpu_workload_threads[i][j], sizeof(cpu_set_t), &cpuset);
+					if (retval != 0)
+						handle_error_en(retval, "pthread_setaffinity_np");
+				}
+			}
+		}
+#endif
 	}
 }
 
@@ -1050,7 +1091,8 @@ void* mica_work_thread(void *data)
 						!is_all_set_all_get)
 					{
 						int op_gap, read_in_this_term = 0;
-						update_box(write_num_partition[partition_id][thread_set_counts], box_item);
+						if (box_item!=NULL)
+							update_box(write_num_partition[partition_id][thread_set_counts], box_item);
 
 						for (i=little_idx; i<end_round; i++)
 						{
@@ -1108,6 +1150,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 	bool is_update, is_maintable = true;
 	struct dhmp_msg resp_msg, req_msg;
 	struct dhmp_msg *resp_msg_ptr, *req_msg_ptr;
+	int i;
 
 	void * key_addr;
 	void * true_value_addr;
@@ -1132,18 +1175,19 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 	// 注意！，此处不需要调用 warpper 函数
 	// 因为传递过来的 value 地址已经添加好头部和尾部了，长度也已经加上了头部和尾部的长度。
 	// MICA_TIME_COUNTER_INIT();
-	item = mehcached_set(req_info->current_alloc_id,
-						table,
-						req_info->key_hash,
-						key_addr,
-						req_info->key_length,
-						true_value_addr,
-						req_info->value_length,
-						req_info->expire_time,
-						req_info->overwrite,
-						&is_update,
-						&is_maintable,
-						NULL);
+	for (i=0; i<CLINET_NUMS; i++)
+		item = mehcached_set(req_info->current_alloc_id,
+							table,
+							req_info->key_hash,
+							key_addr,
+							req_info->key_length,
+							true_value_addr,
+							req_info->value_length,
+							req_info->expire_time,
+							req_info->overwrite,
+							&is_update,
+							&is_maintable,
+							NULL);
 	// MICA_TIME_COUNTER_CAL("[]->[mehcached_set]")
 	
 	// // 大概上，用set函数返回的时间作为各个 set 操作的时间顺序
@@ -1181,13 +1225,13 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		req->node_id = server_instance->server_id;
 		req->done_flag = false;
 		req_msg.msg_type = DHMP_MICA_SEND_INFO_REQUEST;
-		req_msg.data_size = DATAGRAM_ALL_LEN(send_len);
+		req_msg.data_size = DATAGRAM_ALL_LEN(send_len) *CLINET_NUMS;
 		req_msg.data= req;
 		// req_msg_ptr = make_basic_msg(&req_msg, req, DHMP_MICA_SEND_INFO_REQUEST);
 		// 上游节点主动发起连接， 下游节点是 server
 		dhmp_post_send(find_connect_server_by_nodeID(server_instance->server_id + 1), &req_msg, partition_id);
 
-		if (IS_HEAD(server_instance->server_type))
+		if (IS_HEAD(server_instance->server_type) || server_instance->server_id==1 )
 			while(req->done_flag == false);
 	}
 
