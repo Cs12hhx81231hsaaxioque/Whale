@@ -141,6 +141,7 @@ int main(int argc,char *argv[])
                 read_num = 20;
                 update_num = 5;
                 penalty_wr_rate=0.2;
+                main_node_is_readable=true;
             }
             else if(strcmp(argv[i], "0.01") == 0)
             {
@@ -192,7 +193,7 @@ int main(int argc,char *argv[])
     //     available_r_node_num = server_instance->config.nets_cnt;
     // else
         available_r_node_num = (server_instance->config.nets_cnt-1);
-        main_node_is_readable=false;
+        // main_node_is_readable=false;
 
     little_idx=-1;      //重要！！！！
     if (!is_all_set_all_get)
@@ -205,7 +206,8 @@ int main(int argc,char *argv[])
         read_num = 1000 * read_num;
         update_num = 1000 * update_num;
 
-        __read_num_per_node = read_num / available_r_node_num;  // 丢弃无法整除的部分
+        // __read_num_per_node = read_num / available_r_node_num;  // 丢弃无法整除的部分
+        __read_num_per_node = read_num;
         __read_num_per_thread = __read_num_per_node / PARTITION_NUMS;
 
         int i;
@@ -249,7 +251,8 @@ int main(int argc,char *argv[])
 
         final_get_num_per_node =  final_get_num_per_threads * PARTITION_NUMS;
         final_set_num_per_node = update_num_thread * PARTITION_NUMS;
-        read_num = final_get_num_per_node * available_r_node_num;
+        // read_num = final_get_num_per_node * available_r_node_num;
+        read_num = final_get_num_per_node;
         __access_num = read_num + final_set_num_per_node;
 
         if (little_idx == -1)
@@ -417,6 +420,7 @@ pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
 void generate_local_get_mgs_handler(size_t avg_parition_read_max_length)
 {
     int i;
+    int max_num = update_num > read_num ? update_num : read_num;
 
     for (i=0; i<(int)PARTITION_NUMS; i++)
         get_msg_readonly[i] = pack_test_get_resq(&kvs_group[i], i, (size_t)__test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
@@ -428,12 +432,12 @@ void generate_local_get_mgs_handler(size_t avg_parition_read_max_length)
         case ZIPFIAN:
             for(i=0; i<(int)PARTITION_NUMS;i++)
             {
-                pf_partition[i] = (double *)malloc(sizeof(double)  * (size_t)update_num);
-                rand_num_partition[i] =  (int *)malloc(sizeof(int) * (size_t)update_num);
-                write_num_partition[i] = (int *)malloc(sizeof(int) * (size_t)update_num);
+                pf_partition[i] = (double *)malloc(sizeof(double)  * (size_t)max_num);
+                rand_num_partition[i] =  (int *)malloc(sizeof(int) * (size_t)max_num);
+                write_num_partition[i] = (int *)malloc(sizeof(int) * (size_t)max_num);
 
-                pick_zipfian(pf_partition[i], rand_num_partition[i] , (int)update_num);
-                pick_zipfian(pf_partition[i], write_num_partition[i] , (int)update_num);
+                pick_zipfian(pf_partition[i], rand_num_partition[i] , (int)max_num);
+                pick_zipfian(pf_partition[i], write_num_partition[i] , (int)max_num);
             }
             break;
         default:

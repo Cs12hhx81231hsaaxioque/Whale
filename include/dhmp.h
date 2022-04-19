@@ -495,8 +495,12 @@ void exit_print_status();
 
 // #define DHMP_POST_SEND_LATENCE
 
-//#define TEST_CPU_BUSY_WORKLOAD
+#define TEST_CPU_BUSY_WORKLOAD
 
 #define CHT 2
+
+#define CLINET_NUMS 1
+
+#define WAIT_RETURN
 
 #endif

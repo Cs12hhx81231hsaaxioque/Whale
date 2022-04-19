@@ -61,6 +61,11 @@ int *write_num_partition[PARTITION_MAX_NUMS];
 double penalty_wr_rate;
 int penalty_count[PARTITION_MAX_NUMS]={0};
 
+// CPU负载
+pthread_t busy_cpu_workload_threads[PARTITION_MAX_NUMS][PARTITION_MAX_NUMS];
+void* mica_busy_cpu_workload_work_thread(void *data);
+
+
 // 由于 send 操作可能会被阻塞住，所以必须将 recv 操作让另一个线程处理，否则会出现死锁。
 // 我们对每一个 partition 启动两个线程
 void* mica_work_thread(void *data);
@@ -756,6 +761,22 @@ make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp, enum dhmp_
 	return res_msg;
 }
 
+void* mica_busy_cpu_workload_work_thread(void *data)
+{
+	struct timespec start, end;
+	long long mica_total_time_ns;
+	// pid_t pid = gettid();
+	// pthread_t tid = pthread_self();
+	// ERROR_LOG("Pid [%d] Tid [%ld]", pid, tid);
+	while(true)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &start);
+		clock_gettime(CLOCK_MONOTONIC, &end);
+		mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec));
+	}
+}
+
+
 int init_mulit_server_work_thread()
 {
 	bool recv_mulit_threads_enable=true;
@@ -792,6 +813,28 @@ int init_mulit_server_work_thread()
 		if (retval != 0)
 			handle_error_en(retval, "pthread_setaffinity_np");
 		INFO_LOG("set affinity cpu [%d] to thread [%d]", i, i);
+
+#ifdef TEST_CPU_BUSY_WORKLOAD
+		if (SERVER_ID == 3)
+		{
+			int j=0;
+			if (i == 2 || i== 4)
+			{
+				for (j=0; j<1; j++)
+				{
+					retval=pthread_create(&busy_cpu_workload_threads[i][j], NULL, mica_busy_cpu_workload_work_thread, (void*)data);
+					if(retval)
+					{
+						ERROR_LOG("pthread create error.");
+						return -1;
+					}
+					retval = pthread_setaffinity_np(busy_cpu_workload_threads[i][j], sizeof(cpu_set_t), &cpuset);
+					if (retval != 0)
+						handle_error_en(retval, "pthread_setaffinity_np");
+				}
+			}
+		}
+#endif
 	}
 }
 
@@ -1058,7 +1101,8 @@ void* mica_work_thread(void *data)
 						!is_all_set_all_get)
 					{
 						int op_gap, read_in_this_term = 0;
-						update_box(write_num_partition[partition_id][thread_set_counts], box_item);
+						if (box_item!=NULL)
+							update_box(write_num_partition[partition_id][thread_set_counts], box_item);
 
 						for (i=little_idx; i<end_round; i++)
 						{
@@ -1113,6 +1157,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
     bool is_update, is_maintable = true;
     struct dhmp_msg resp_msg, req_msg;
     // struct dhmp_msg *resp_msg_ptr, *req_msg_ptr;
+	int i;
 
     void * key_addr;
     void * value_addr;
@@ -1146,18 +1191,19 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
     if (/*IS_MAIN(server_instance->server_type) || */ req_info->onePC)
     {
         // MICA_TIME_COUNTER_INIT();
-        item = mehcached_set(req_info->current_alloc_id,
-                            table,
-                            req_info->key_hash,
-                            key_addr,
-                            req_info->key_length,
-                            value_addr,
-                            req_info->value_length,
-                            req_info->expire_time,
-                            req_info->overwrite,
-                            &is_update,
-                            &is_maintable,
-                            NULL);
+		for (i=0; i<CLINET_NUMS; i++)
+			item = mehcached_set(req_info->current_alloc_id,
+								table,
+								req_info->key_hash,
+								key_addr,
+								req_info->key_length,
+								value_addr,
+								req_info->value_length,
+								req_info->expire_time,
+								req_info->overwrite,
+								&is_update,
+								&is_maintable,
+								NULL);
         // MICA_TIME_COUNTER_CAL("[dhmp_mica_set_request_handler]->[mehcached_set]")
         
         // 大概上，用set函数返回的时间作为各个 set 操作的时间顺序
@@ -1221,8 +1267,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
         req->node_id = MAIN;
 
         req_msg.msg_type = DHMP_MICA_SEND_INFO_REQUEST;
-        req_msg.data_size = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request)\
-                            + req_info->key_length + req_info->value_length;
+        req_msg.data_size = (sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request)+ req_info->key_length + req_info->value_length) * CLINET_NUMS;
         // req_msg.data_size = req->info_length;
         // req_msg.data_size = DATAGRAM_ALL_LEN(req->info_length);
         req_msg.data= req;
