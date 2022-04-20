@@ -297,7 +297,8 @@ int main(int argc,char *argv[])
         sleep(3);
         set_workloada_server();
     }
-
+    sleep(15);
+    exit(0);
     pthread_join(server_instance->ctx.epoll_thread, NULL);
     return 0;
 }
@@ -406,13 +407,21 @@ pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
     Assert(msg->list_anchor.next != LIST_POISON1 && msg->list_anchor.prev!= LIST_POISON2);
     return msg;
 }
-
+double *zipf_value_index_total;
+int *value_index_total;
 void generate_local_get_mgs_handler(size_t avg_parition_read_max_length)
 {
-    int i;
-
+    int i,j,k;
+    int min_num = update_num < read_num ? update_num : read_num;
+    int p_read_num = read_num/PARTITION_NUMS + 1;
+    int p_write_num = update_num/PARTITION_NUMS + 1;
+    
     for (i=0; i<(int)PARTITION_NUMS; i++)
         get_msg_readonly[i] = pack_test_get_resq(&kvs_group[i], i, (size_t)__test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
+
+    zipf_value_index_total = (double *)malloc(sizeof(double)  * (size_t)min_num);
+    value_index_total      = (int*)malloc(sizeof(int)  * (size_t)min_num);
+    pick_zipfian(zipf_value_index_total, value_index_total , (int)min_num);
 
     switch (workload_type)
     {
@@ -421,12 +430,20 @@ void generate_local_get_mgs_handler(size_t avg_parition_read_max_length)
         case ZIPFIAN:
             for(i=0; i<(int)PARTITION_NUMS;i++)
             {
-                pf_partition[i] = (double *)malloc(sizeof(double)  * (size_t)update_num);
-                rand_num_partition[i] =  (int *)malloc(sizeof(int) * (size_t)update_num);
-                write_num_partition[i] = (int *)malloc(sizeof(int) * (size_t)update_num);
-
-                pick_zipfian(pf_partition[i], rand_num_partition[i] , (int)update_num);
-                pick_zipfian(pf_partition[i], write_num_partition[i] , (int)update_num);
+                // pick_zipfian(pf_partition[i], rand_num_partition[i] , (int)min_num);
+                // pick_zipfian(pf_partition[i], write_num_partition[i] , (int)min_num);
+                write_num_partition[i] = (int*)malloc( sizeof(int) * (size_t)p_write_num);
+                rand_num_partition[i]  = (int*)malloc( sizeof(int) * (size_t)p_read_num);
+                for (j=0; j<p_write_num; j++)
+                {
+                    int idx = rand() % min_num; 
+                    write_num_partition[i][j] = value_index_total[idx];
+                }
+                for (j=0; j<p_read_num; j++)
+                {
+                    int idx = rand() % min_num; 
+                    rand_num_partition[i][j] = value_index_total[idx];
+                }
             }
             break;
         default:

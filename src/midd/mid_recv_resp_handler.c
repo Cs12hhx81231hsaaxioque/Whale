@@ -55,7 +55,6 @@ static void  dhmp_send_respone_handler(struct dhmp_transport* rdma_trans, struct
 void dhmp_send_request_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg, bool * is_async, bool is_cq_thread);
 void* penalty_addr;
 int penalty_partition_count[PARTITION_MAX_NUMS];
-double *pf_partition[PARTITION_MAX_NUMS];
 int *rand_num_partition[PARTITION_MAX_NUMS];
 int *write_num_partition[PARTITION_MAX_NUMS];
 double penalty_wr_rate;
@@ -980,6 +979,7 @@ static int finish_read(struct BOX* box_item, int partition_id, int need_read, in
 			if(box_item->array[i] == 0) continue;
 			if(box_item->array[i] == rand_num_partition[partition_id][current_read + j])
 			{
+				penalty_partition_count[partition_id]++;
 				box_item->array[i] = 0;
 				box_item->total --;
 				box_item->needRTT = 1;
@@ -1104,8 +1104,8 @@ void* mica_work_thread(void *data)
 								thread_get_counts += read_in_this_term;
 								need_read -= read_in_this_term;
 
-								if (need_read != 0)
-									penalty_partition_count[partition_id]++;
+								// if (need_read != 0)
+								// 	penalty_partition_count[partition_id]++;
 							}
 						}
 
@@ -1118,8 +1118,8 @@ void* mica_work_thread(void *data)
 							thread_get_counts += read_in_this_term;
 							need_read -= read_in_this_term;
 
-							if (need_read != 0)
-								penalty_partition_count[partition_id]++;
+							// if (need_read != 0)
+							// 	penalty_partition_count[partition_id]++;
 						}
 					}
 					thread_set_counts++;
@@ -1231,7 +1231,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		// 上游节点主动发起连接， 下游节点是 server
 		dhmp_post_send(find_connect_server_by_nodeID(server_instance->server_id + 1), &req_msg, partition_id);
 
-		if (IS_HEAD(server_instance->server_type) || server_instance->server_id==1 )
+		if (IS_HEAD(server_instance->server_type)  /*|| server_instance->server_id==1*/ )
 			while(req->done_flag == false);
 	}
 
@@ -1247,6 +1247,11 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		// 先向 主节点/ 客户端 发送回复，节约一次 RTT 的时间
 		resp_msg_ptr = make_basic_msg(&resp_msg, resp, DHMP_MICA_SEND_INFO_RESPONSE);
 		dhmp_post_send(rdma_trans, resp_msg_ptr, partition_id);
+	}
+	partition_set_count[req_info->partition_id]++;
+	if (partition_set_count[req_info->partition_id] == avg_partition_count_num)
+	{
+		partition_count_set_done_flag[req_info->partition_id] = true;
 	}
 #endif
 
@@ -1310,12 +1315,6 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		dhmp_post_send(rdma_trans, resp_msg_ptr, partition_id);
 	}
 #endif
-
-	partition_set_count[req_info->partition_id]++;
-	if (partition_set_count[req_info->partition_id] == avg_partition_count_num)
-	{
-		partition_count_set_done_flag[req_info->partition_id] = true;
-	}
 }
 
 // 函数前缀没有双下划线的函数是单线程执行的
@@ -1400,8 +1399,9 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 					ERROR_LOG("penalty_partition_count[%d] get count [%d]",i, penalty_partition_count[i]);
 					total_penalty_num+=penalty_partition_count[i];
 				}
-				ERROR_LOG("Local total_ops_num is [%d], read_count is [%d], total_get_ops_num is [%d], total_penalty_num is [%d]", total_ops_num,total_ops_num-update_num, total_get_ops_num, total_penalty_num);
-		}
+				int ture_total_penalty_num = total_get_ops_num - read_num;
+				ERROR_LOG("Local total_ops_num is [%d], read_count is [%d], total_get_ops_num is [%d], total_penalty_num is [%d], ture_total_penalty_num is [%d]", total_ops_num,total_ops_num-update_num, total_get_ops_num, total_penalty_num, ture_total_penalty_num);	
+			}
 #endif
 
 			*is_async = true;

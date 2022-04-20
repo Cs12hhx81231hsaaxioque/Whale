@@ -181,7 +181,8 @@ void dhmp_comp_channel_handler(struct dhmp_cq* dcq)
 				ERROR_LOG("penalty_partition_count[%d] get count [%d]",i, penalty_partition_count[i]);
 				total_penalty_num+=penalty_partition_count[i];
 			}
-			ERROR_LOG("Local total_ops_num is [%d], read_count is [%d], total_get_ops_num is [%d], total_penalty_num is [%d]", total_ops_num,total_ops_num-update_num, total_get_ops_num, total_penalty_num);
+			int ture_total_penalty_num = total_get_ops_num - read_num;
+			ERROR_LOG("Local total_ops_num is [%d], read_count is [%d], total_get_ops_num is [%d], total_penalty_num is [%d], ture_total_penalty_num is [%d]", total_ops_num,total_ops_num-update_num, total_get_ops_num, total_penalty_num, ture_total_penalty_num);
 			sleep(2);
 			exit(0);
 		}

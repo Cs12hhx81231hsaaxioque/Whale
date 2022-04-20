@@ -466,20 +466,19 @@ extern void* penalty_addr;
 extern struct dhmp_msg** get_msgs_group;
 extern struct dhmp_msg* get_msg_readonly[PARTITION_MAX_NUMS];
 
-extern double *pf_partition[PARTITION_MAX_NUMS];
 extern int *rand_num_partition[PARTITION_MAX_NUMS];
 extern int *write_num_partition[PARTITION_MAX_NUMS];
 extern int penalty_partition_count[PARTITION_MAX_NUMS];
 // #define PERF_TEST 1
-#define THROUGH_TEST 1
-// #define MAIN_LOG_DEBUG_LATENCE 1
+// #define THROUGH_TEST 1
+#define MAIN_LOG_DEBUG_LATENCE 1
 // #define DHMP_POST_SEND_LATENCE 
 
 void exit_print_status();
 
 #define CRAQ 1
 
-#define CLINET_NUMS 1
+#define CLINET_NUMS 5
 
 #define WAIT_RETURN
 
