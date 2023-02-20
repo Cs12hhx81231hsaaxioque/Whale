@@ -9,7 +9,8 @@
 
 
 #define ACCESS_NUM __access_num
-#define TEST_KV_NUM 6
+
+extern int current_credict;
 
 extern int __access_num;
 // extern int rand_num[TEST_KV_NUM];
@@ -40,19 +41,16 @@ enum WORK_LOAD_DISTRIBUTED
 };
 
 struct test_kv * generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums);
+struct test_kv * generate_test_data_YCSB(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums);
 bool  cmp_item_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value_length,const uint8_t *b_out_value);
 void dump_value_by_addr(const uint8_t * value, size_t value_length);
 bool cmp_item_all_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value_length,const uint8_t *b_out_value);
 
 
-#define TYPE_BOX int
-#define Empty_pointer NULL
+#define TYPE_BOX int8_t
 
 struct BOX{
 	TYPE_BOX* array;
-	int length;
-	int cur;
-	int total;
 	int needRTT;
 };
 
@@ -62,7 +60,6 @@ void update_box(TYPE_BOX value, struct BOX * box);
 //int finish_read(TYPE_BOX * value_array, int array_length, struct BOX* box);
 void print_box(struct BOX* box);
 
-// extern struct BOX* box[PARTITION_MAX_NUMS];
 extern struct dhmp_msg** set_msgs_group;
 extern struct timespec start_through, end_through;
 extern long long int total_through_time;

@@ -185,7 +185,6 @@ void dhmp_set_curnode_id ( struct dhmp_config* config_ptr, bool is_ubuntu)
 	if (is_ubuntu)
 	{
 		config_ptr->curnet_id = SERVER_ID;
-		Assert(SERVER_ID == 3 || SERVER_ID == 6);
 		return;
 	}
 

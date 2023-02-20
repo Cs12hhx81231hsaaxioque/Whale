@@ -12,7 +12,10 @@
 #include "dhmp_log.h"
 #include "midd_mica_benchmark.h"
 
+int current_credict = 0;
+
 int __test_size;
+int __write_avg_num=0;
 int __access_num=0;
 int read_num, update_num;
 int end_round=0;
@@ -31,7 +34,7 @@ const double C = 1.0;
 
 int * read_num_penalty=NULL;
 
-// 生成符合Zipfian分布的数据
+ 
 void generate_zipfian(double pf[], size_t nums)
 {
     int i;
@@ -49,24 +52,25 @@ void generate_zipfian(double pf[], size_t nums)
     }
 }
 
-// 根据Zipfian分布生成索引
+ 
 void pick_zipfian(double pf[], int rand_num[], int max_num)
 {
 	int i, index;
 
-    generate_zipfian(pf, max_num);
+    generate_zipfian(pf, TEST_KV_NUM);
 
     srand(time(0));
     for ( i= 0; i < max_num; i++)
     {
         index = 0;
         double data = (double)rand()/RAND_MAX; 
-        while (index<(max_num)&&data > pf[index])   
+        while (index<(TEST_KV_NUM-1)&&data > pf[index])   
             index++;
 		rand_num[i]=index;
        // printf("%d ", rand_num[i]);
     }
     //printf("\n");
+//    sleep(1);
 }
 
 void pick_uniform(double pf[], int rand_num[], int max_num)
@@ -74,7 +78,7 @@ void pick_uniform(double pf[], int rand_num[], int max_num)
 	int i, rand_idx, tmp;
 
     for (i=0 ;i<max_num; i++)
-        rand_num[i] = i;
+        rand_num[i] = i % TEST_KV_NUM;
 
     srand(time(0));
     for ( i= 0; i < max_num; i++)
@@ -91,6 +95,9 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
 {
     size_t i,j;
     int partition_id;
+	int kv_count[PARTITION_MAX_NUMS];
+    for(i = 0;i < PARTITION_NUMS;i++)
+        kv_count[i] = 0;
     //struct test_kv *kvs_group;
     //kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * kv_nums);
     memset(kvs_group, 0, sizeof(struct test_kv) * kv_nums);
@@ -98,13 +105,11 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
     for (i = 0; i < kv_nums; i++)
     {
         size_t key = i;
-        key = key << 16;
 
         kvs_group[i].true_key_length = sizeof(key);
         kvs_group[i].true_value_length = value_length;
         kvs_group[i].key = (uint8_t *)malloc(kvs_group[i].true_key_length);
         kvs_group[i].value = (uint8_t*) malloc(kvs_group[i].true_value_length);
-        kvs_group[i].key_hash = hash(kvs_group[i].key, kvs_group[i].true_key_length );
 
         // 注意我们 get 回来的数据需要  考虑到 header 和 tail 的大小
         for (j=0; j<1; j++) // 暂时只开一个缓冲区
@@ -112,19 +117,122 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
 
         memset(kvs_group[i].value, (int)(i+val_offset), kvs_group[i].true_value_length);
         memcpy(kvs_group[i].key, &key, kvs_group[i].true_key_length);
-
-        partition_id = *((size_t*)kvs_group[i].key)  % (PARTITION_NUMS);
+		kvs_group[i].key_hash = hash(kvs_group[i].key, kvs_group[i].true_key_length );
+        partition_id = (kvs_group[i].key_hash)  % (PARTITION_NUMS);
+		j = i % (PARTITION_NUMS);
+		if(j == partition_id)
+			kv_count[partition_id] ++;
     }
-
+for(i = 0;i < PARTITION_NUMS;i++)
+        ERROR_LOG("&&&&&&&&&&    kv_bucket[%d] = %d", i,kv_count[i]);
     return kvs_group;
 }
 
-	// size_t 	 out_value_length; 	// 返回值
-	// uint32_t out_expire_time;	// 返回值
-	// bool	 partial;			// 返回值
-	// uint8_t  out_value[0];		// 返回值
+int count_r[PARTITION_MAX_NUMS]= {0};
+int count_w[PARTITION_MAX_NUMS]= {0};
 
-// 我们不回去比较key，因为如果value可以正确拿到，则key一定是正确的（另外我们没用拿key的接口)
+struct test_kv *
+generate_test_data_YCSB(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums)
+{
+    generate_test_data(key_offset, val_offset, (size_t)__test_size , (size_t)TEST_KV_NUM);
+
+    set_msgs_group = (struct dhmp_msg**) malloc( (size_t)(100000) * sizeof(void*));
+
+    FILE *fp;
+  fp = fopen("/home/hdlu/LineKV/atrace.txt", "r");
+  if(fp == NULL){
+      printf("open file error");
+          exit(0);
+  }
+  char s[40];
+  struct dhmp_msg* msg ;
+  char delim[] = " ";
+  uint32_t i = 0, writes = 0;
+  char opcode = -1;
+  int idx, partition_id;
+  bool is_async;
+  while(fgets(s, 40, fp)){
+      char *tmp;
+      char *str1, *str2;
+          tmp = strtok(s, delim);
+          str1 = tmp;
+          int j = 0;
+      while(tmp != NULL){
+          if(j == 1){
+            str2 = tmp;
+        }
+          tmp = strtok(NULL, delim);
+                  j++;
+      }
+
+      if(atoi(str1) == 0){
+          opcode = 0; 
+      }else if(atoi(str1) == 1){
+          opcode = 1;
+      }
+
+
+      int len = strlen(str2);
+      char str2_key[8];
+      strcpy(str2_key, str2 + len - 8);
+      idx = (atol(str2_key)) % TEST_KV_NUM;
+//	count_r[14]++;ERROR_LOG("count{%d] [%d] %d",count_r[14] ,opcode,idx);
+      if(opcode == 0 )
+      {
+          msg = pack_test_get_resq(&kvs_group[idx], 0, (size_t)__test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
+          partition_id = idx % PARTITION_NUMS;
+          read_list[partition_id][count_r[partition_id]%10000] = msg;
+          count_r[partition_id]++;
+      }
+      else if(opcode == 1)
+      {
+		if(kv_nums == 111)
+		{	
+          msg  = (struct dhmp_msg*)pack_test_set_resq(&kvs_group[idx], count_w[partition_id]);
+		 set_msgs_group[count_w[partition_id]] = msg;
+		ERROR_LOG("count =%p  %p",msg,set_msgs_group[count_w[partition_id]]);
+          dhmp_send_request_handler(NULL, set_msgs_group[count_w[partition_id]], &is_async, 0, 0, false);
+		}
+          count_w[partition_id]++;
+      }
+          
+  }
+  fclose(fp);
+  for(i=0;i<PARTITION_NUMS;i++)
+  {
+	count_r[i] = count_r[i]/4;
+    ERROR_LOG("generate read[%d]=[%d]",i,count_r[i]);
+    ERROR_LOG("generate write[%d]=[%d]",i,count_w[i]);
+    }
+     switch (workload_type)
+    {
+        case UNIFORM:
+                        for(i=0; i<(int)PARTITION_NUMS;i++)
+                        {
+                                rand_num_partition[i] =  (int *)malloc(sizeof(int) * (size_t)max_num);
+                                pick_uniform(pf_partition, rand_num_partition[i] , (int)max_num);
+                                write_num_partition[i] = (int *)malloc(sizeof(int) * (size_t)max_num);
+                                pick_uniform(pf_partition, write_num_partition[i] , (int)max_num);
+                        }
+            break;
+        case ZIPFIAN:
+            for(i=0; i<(int)PARTITION_NUMS;i++)
+            {
+                rand_num_partition[i] =  (int *)malloc(sizeof(int) * (size_t)max_num);
+                write_num_partition[i] = (int *)malloc(sizeof(int) * (size_t)max_num);
+
+                pick_zipfian(pf_partition, rand_num_partition[i] , (int)max_num);
+                pick_zipfian(pf_partition, write_num_partition[i] , (int)max_num);
+            }
+            break;
+        default:
+            ERROR_LOG("Unkown!");
+            break;
+    }
+	startwork = 1;
+}
+
+ 
 bool 
 cmp_item_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value_length,const uint8_t *b_out_value)
 {
@@ -149,7 +257,7 @@ cmp_item_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value
                 for (; tp < off; tp++)
                     printf("%ld, %hhu, %hhu\n", tp, a_out_value[tp], b_out_value[tp]);
             }
-            // 打印 unsigned char printf 的 格式是 %hhu
+   
             printf("%ld, %hhu, %hhu\n", off, a_out_value[off], b_out_value[off]);
         }
         else
@@ -228,80 +336,25 @@ cmp_item_all_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_v
     return re;
 }
 
-// struct BOX* box[PARTITION_MAX_NUMS];
+ 
 struct dhmp_msg** set_msgs_group;
-
-// void DO_READ()
-// {
-// if(box->needRTT == 0)
-// 	// normal_time_count_start;
-// 	;
-// 	//TODO:read from mica
-// if(box->needRTT == 0)
-// 	//normal_time_count_over;
-// 	;
-// else 
-// 	//special_time_count_over;
-// 	return;
-// }
-
-/***
- * Whale: kind = 0 ;
- * CRAQ: kind = 1;
- * CHT: kind = 2;
- *   current_node_number = [0 ~ total_node_number-1]
- * return NULL means NO penalty;
-*/
+ 
+ 
 struct BOX* intial_box(int current_node_number, int total_node_number, int kind)
 {
-	int times = 0;
 	if(current_node_number == 0)
-		return Empty_pointer;
-	switch (kind)
-	{
-		case 0: times = (current_node_number - 1) + 2;
-		break;
-		case 1: times = (total_node_number - current_node_number)*2;
-		break;
-		case 2: times = 2;
-		break;
-		default :
-			return Empty_pointer;
-	}
-	times = (times)/2;//1.5==>1
+		return NULL;
 	
 	struct BOX * box = (struct BOX*) malloc(sizeof(struct BOX));
-	box->array = (TYPE_BOX *)malloc(times * sizeof(TYPE_BOX));
-	memset(box->array, 0, times * sizeof(TYPE_BOX));
-	box->length = times;
-	box->cur = -1;
-	box->total = 0;
-	box->needRTT = 0;
+	box->array = (TYPE_BOX *)malloc(TEST_KV_NUM * sizeof(TYPE_BOX));
+	memset(box->array, 0, TEST_KV_NUM * sizeof(TYPE_BOX));
+	ERROR_LOG("init box");
 	return box; 
 }
 
-/***
- * value is acquired from each write operation
-*/
+ 
 void update_box(TYPE_BOX value, struct BOX * box)
 {
-	//find the same value already in the box and delete it
-	int i;
-	for(i =0;i < box->length;i++)
-	{
-		if(box->array[i] == value)
-		{
-			box->array[i] = 0;
-			box->total --;
-			break;
-		}
-	}
-	// put new value in box
-	box->cur = (box->cur + 1) % box->length;
-	if(box->array[box->cur] != 0)
-		box->total --;
-	box->array[box->cur] = value;
-	box->total ++;
 	return;
 }
 
@@ -309,63 +362,4 @@ void update_box(TYPE_BOX value, struct BOX * box)
 
 void print_box(struct BOX* box)
 {
-	int i = 0;
-	for(;i < box->length;i++)
-		printf("%d ",box->array[i]);
-	printf("cur = %d,length = %d %d\n",box->cur,box->length,box->total);
 }
-
-
-
-// int main()
-// {
-// 	TYPE_BOX value[10] = {1, 1, 3, 4 ,5 ,1 , 1, 3 ,4 ,5};
-// 	struct BOX* box = intial_box(1,7,1);
-// 	if(box == Empty_pointer)
-// 		return 0; 
-		
-// 	//test
-// 	// to define  rand_read_set , rand_write_set and length of rand_write_set
-// 	int need_read = 0, read_in_this_term;
-// 	current_read = &(rand_read_set[0]);
-
-// 	for(i in length of rand_write_set) // each write operation trigger a update_box (a term)
-// 	{
-// 		update_box(rand_write_setet[i], box);
-// 		need_read += each read_set;
-// 		read_in_this_term = finish_read(current_read, need_read, box);
-// 		current_read = current_read + read_in_this_term;
-// 		need_read = need_read - read_in_this_term;
-// 		//wait for next write
-// 	}
-// 	if (need_read != 0)
-// 	{
-// 		wait a rtt  then:
-// 			finish_read(current_read, need_read, box);
-// 	}
-
-
-// 	// print_box(box);
-// 	// update_box(1,box);
-// 	// update_box(5,box);
-// 	// update_box(3,box);
-// 	// update_box(5,box);
-// 	// update_box(6,box);
-// 	// update_box(1,box);
-// 	// update_box(5,box);
-// 	// print_box(box);
-// 	// printf("finish = %d\n",finish_read(value, 10, box));
-// 	// print_box(box);
-// 	// update_box(5,box);
-// 	// update_box(3,box);
-// 	// print_box(box);
-// 	// printf("finish = %d\n",finish_read(value, 10, box));
-// 	// print_box(box);
-// 	// printf("finish = %d\n",finish_read(value, 10, box));
-// 	// print_box(box);
-	
-	
-// 	free(box->array);
-// 	free(box);
-// 	return 0;
-// }

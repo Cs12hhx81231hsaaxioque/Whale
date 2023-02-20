@@ -26,6 +26,11 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 
+#include <xmmintrin.h>
+
+#define	_mm_clwb(addr)\
+	asm volatile(".byte 0x66; xsaveopt %0" : "+m" (*(volatile char *)addr));
+
 #ifdef USE_DPDK
 #include <rte_memcpy.h>
 #endif
@@ -77,22 +82,33 @@ mehcached_memcpy8(uint8_t *dest, const uint8_t *src, size_t length)
         case 0:
             break;
         case 1:  // 8B
-            *(uint64_t *)(dest + 0) = *(const uint64_t *)(src + 0);
+			*(uint64_t *)(dest + 0) = *(const uint64_t *)(src + 0);
+             _mm_clflush(dest);
             break;
         case 2:  // 16B
             *(uint64_t *)(dest + 0) = *(const uint64_t *)(src + 0);
             *(uint64_t *)(dest + 8) = *(const uint64_t *)(src + 8);
+             _mm_clflush(dest);
+              _mm_clflush(dest+8);
             break;
         case 3:  // 32B
             *(uint64_t *)(dest + 0) = *(const uint64_t *)(src + 0);
             *(uint64_t *)(dest + 8) = *(const uint64_t *)(src + 8);
             *(uint64_t *)(dest + 16) = *(const uint64_t *)(src + 16);
+
+            _mm_clflush(dest);
+              _mm_clflush(dest+8);
+            _mm_clflush(dest+16);
             break;
         case 4:
             *(uint64_t *)(dest + 0) = *(const uint64_t *)(src + 0);
             *(uint64_t *)(dest + 8) = *(const uint64_t *)(src + 8);
             *(uint64_t *)(dest + 16) = *(const uint64_t *)(src + 16);
             *(uint64_t *)(dest + 24) = *(const uint64_t *)(src + 24);
+            _mm_clflush(dest);
+              _mm_clflush(dest+8);
+            _mm_clflush(dest+16);
+            _mm_clflush(dest+24);
             break;
         default:
             memcpy(dest, src, length);

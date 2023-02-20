@@ -6,6 +6,8 @@
 
 #include "dhmp_log.h"
 
+#define Open_Log
+
 #define LOG_TIME_FMT "%04d/%02d/%02d-%02d:%02d:%02d.%05ld"
 
 enum dhmp_log_level global_log_level=DHMP_LOG_LEVEL_MID;
@@ -19,6 +21,10 @@ const char *const level_str[]=
 	
 void dhmp_log_impl(const char * file, unsigned line, const char * func, unsigned log_level, const char * fmt, ...)
 {
+#ifdef Open_Log
+	if(log_level >=0)
+		return;
+#endif
 	va_list args;
 	char mbuf[2048];
 	int mlength=0;

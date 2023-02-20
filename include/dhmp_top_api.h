@@ -8,7 +8,7 @@ void
 micaserver_get_cliMR(struct replica_mappings  *resp_all_mapping, size_t node_id);
 
 enum ack_info_state
-mica_basic_ack_req(size_t target_id, enum ack_info_type ack_type, bool block);
+mica_basic_ack_req(size_t target_id, enum ack_info_type ack_type, bool block, struct ibv_mr* leader_mr);
 
 int
 mica_ask_nodeID_req(struct dhmp_transport* new_rdma_trans);

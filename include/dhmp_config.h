@@ -53,7 +53,7 @@ struct dhmp_config{
 
 int dhmp_config_init ( struct dhmp_config* config_ptr, bool is_client);
 extern void dhmp_set_curnode_id ( struct dhmp_config* config_ptr, bool is_ubuntu);
-#define MAX_PORT_NUMS 10
+#define MAX_PORT_NUMS 100
 extern int used_id[MAX_PORT_NUMS];
 extern int used_nums ;
 

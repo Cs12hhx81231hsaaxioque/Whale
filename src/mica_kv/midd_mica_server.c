@@ -19,6 +19,7 @@
 #include "midd_mica_benchmark.h"
 #include "mica_partition.h"
 
+
 void new_main_test_through();
 
 pthread_t nic_thread[PARTITION_MAX_NUMS];
@@ -26,14 +27,25 @@ void* (*main_node_nic_thread_ptr) (void* );
 void* (*replica_node_nic_thread_ptr) (void* );
 void test_set(struct test_kv * kvs);
 
+int startwork;
+
 struct dhmp_msg* all_access_set_group;
 
 int *partition_req_count_array;
 
 void generate_local_get_mgs();
-void generate_local_get_mgs_handler(size_t avg_parition_read_max_length);
+void generate_local_get_mgs_handler(size_t read_per_node);
 void set_workloada_server();
 
+int set_workload_OK;
+
+double workload_WriteRate;
+char workloadf;
+char workloadd;
+char workloade;
+
+
+#define TOTAL_OPT_NUMS 2000
 int main(int argc,char *argv[])
 {
     // 初始化集群 rdma 连接
@@ -46,8 +58,66 @@ int main(int argc,char *argv[])
     const size_t num_pages_to_reserve = 16384 - 2048;   // give 2048 pages to dpdk
     
     INFO_LOG("Server argc is [%d]", argc);
-    main_node_is_readable = false;
-    Assert(argc==8);
+	main_node_is_readable = true;
+    Assert(argc==8 || argc==5);
+    if(argc == 5)
+    {
+    for (i = 0; i<argc; i++)
+    {
+        if (i==1)
+        {
+            SERVER_ID = (size_t)(*argv[i] - '0');
+        }
+        else if (i==2)
+        {
+            __partition_nums = (unsigned long long) atoi(argv[i]);
+            Assert(__partition_nums >0 && __partition_nums < PARTITION_MAX_NUMS);
+        }
+        else if (i==3)
+        {
+            is_ubuntu = atoi(argv[i]);
+        }
+        else if (i==4)
+        {
+            if(strcmp(argv[i], "workloada") == 0)
+            {
+                workload_WriteRate = 1;
+            }
+            else if(strcmp(argv[i], "workloadb") == 0)
+            {
+                workload_WriteRate = 19;
+            }
+            else if(strcmp(argv[i], "workloadc") == 0)
+            {
+                workload_WriteRate = 150;
+            }
+            else if(strcmp(argv[i], "workloadd") == 0)
+            {
+                workload_WriteRate = 19;
+                workloadd = 1;
+            }
+            else if(strcmp(argv[i], "workloade") == 0)
+            {
+                workload_WriteRate = 19;
+                workloade =  1;
+            }
+            else if(strcmp(argv[i], "workloadf") == 0)
+            {
+                workload_WriteRate = 1;
+                workloadf = 1;
+            }
+            else
+            {
+                ERROR_LOG(" workload[a-f]!");
+                exit(0);
+            }
+        }
+    }
+    __test_size = 64;
+    workload_type=ZIPFIAN;
+	current_credict = 1;
+    }
+    else
     for (i = 0; i<argc; i++)
 	{
         if (i==1)
@@ -91,18 +161,15 @@ int main(int argc,char *argv[])
         }
         else if (i==6)
         {
-            __access_num = atoi(argv[i]);
-            INFO_LOG(" __access_num is [%d]", __access_num);
+            current_credict = atoi(argv[i]);
+            INFO_LOG("current_credict is [%d]",current_credict );
         }
         else if (i==7)
         {
-            // get : set
-            // 写比读多好处理
             if(strcmp(argv[i], "0.5") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
-                // read_num = ACCESS_NUM /2;
-                // update_num = ACCESS_NUM /2;
+				workload_WriteRate = 1;
                 read_num = 5;
                 update_num = 5;
                 penalty_rw_rate = 0.5;
@@ -110,31 +177,32 @@ int main(int argc,char *argv[])
             else if(strcmp(argv[i], "1.0") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
+				workload_WriteRate = 0;
                 read_num = 0;
-                update_num = 6000;
+                update_num = TOTAL_OPT_NUMS;
                 is_all_set_all_get = true;
                 penalty_rw_rate=1.0;
             }
             else if(strcmp(argv[i], "0.75") == 0)
             {
-                INFO_LOG(" RW_TATE is [%s]", argv[i]);
+				workload_WriteRate = (double)1/(double)3;
+                INFO_LOG(" RW_TATE is [%s] %lf", argv[i],workload_WriteRate);
                 read_num = 1;
                 update_num =3;
                 penalty_rw_rate = 0.75;
             }
-            // 读比写多比较麻烦，需要各节点自己自动执行写操作
-            // 最极端的情况是全读
-            // 为了能触发和同步各节点的读操作，我们至少要设置一个写操作，并第一个执行
             else if(strcmp(argv[i], "0.0") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
+				workload_WriteRate = 150;
                 read_num = 6000;
-                update_num = 1;     // 至少有一个写操作
+                update_num = 1;     
                 is_all_set_all_get = true;
             }
             else if(strcmp(argv[i], "0.2") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
+				workload_WriteRate = 4;
                 read_num = 20;
                 update_num = 5;
                 penalty_rw_rate = 0.2;
@@ -143,6 +211,7 @@ int main(int argc,char *argv[])
             else if(strcmp(argv[i], "0.01") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
+				workload_WriteRate = 99;
                 read_num = 99;
                 update_num = 1;
                 main_node_is_readable = true;
@@ -150,6 +219,7 @@ int main(int argc,char *argv[])
             }
             else if(strcmp(argv[i], "0.05") == 0)
             {
+				workload_WriteRate = 19;
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
                 read_num = 19;
                 update_num = 1;
@@ -158,7 +228,7 @@ int main(int argc,char *argv[])
             }
             else
             {
-                ERROR_LOG("Unkown rate!");
+                ERROR_LOG("Write rate = [0.0 0.01 0.05 0.2 0.5 0.75 1.0]!");
                 exit(0);
             }
 
@@ -169,108 +239,39 @@ int main(int argc,char *argv[])
             }
 	    }
     }
-
+	
 #ifdef NIC_MULITI_THREAD
     nic_thread_num = PARTITION_NUMS;
 #else
     nic_thread_num = 1;
 #endif
 
-    // 初始化本地存储，分配 page
+
 	mehcached_shm_init(page_size, num_numa_nodes, num_pages_to_try, num_pages_to_reserve);
 
-    // 初始化 rdma 连接
+
     server_instance = dhmp_server_init(SERVER_ID);
-    int available_r_node_num;
     // if (main_node_is_readable)
     //     available_r_node_num = server_instance->config.nets_cnt;
     // else
-        available_r_node_num = (server_instance->config.nets_cnt - 1);
         // main_node_is_readable=false;
 
-    penalty_addr = (void *) malloc((size_t)__test_size);
-    int update_num_thread;
-    little_idx=-1;      //重要！！！！
-    if (!is_all_set_all_get)
-    {
-        int __read_num_per_node, __read_num_per_thread;
-        int final_get_num_per_node=0, final_get_num_per_threads=0, final_set_num_per_node=0;
-
-        read_num = 1000 * read_num;
-        update_num = 1000 * update_num;
-
-        // 多客户，每个节点的读写比例等于全局读写比例
-        //__read_num_per_node = read_num / available_r_node_num;  // 丢弃无法整除的部分
-        __read_num_per_node = read_num;
-        __read_num_per_thread = __read_num_per_node / (int)PARTITION_NUMS;
-
-        int i;
-        int divisible_thread_get_nums[4];
-        memset(divisible_thread_get_nums, 0, sizeof(int)*4);
-        // little_idx 之前的 op_gaps[idx] 表示需要每执行一次 set 要执行 for op_gaps[idx] 个 get
-        // little_idx 之后(包括little_idx)的 op_gaps[idx] 表示需要每执行 op_gaps[idx] 次 set 要执行 1 次 get
-        // 有了 little_idx  之后 get_is_more 就不重要了，只根据 little_idx 判断该进行 for 还是取 mod
-        int round=0;
-        update_num_thread = update_num / (int)PARTITION_NUMS;
-        ERROR_LOG("__read_num_per_node[%d], __read_num_per_thread [%d], update_num_thread[%d]", __read_num_per_node, __read_num_per_thread, update_num_thread);
-
-        while(__read_num_per_thread > 10 && round < 4)
-        {
-
-            if (__read_num_per_thread > update_num_thread)
-            {
-                op_gaps[round] = __read_num_per_thread / update_num_thread;  // 要保留无法整除的部分
-                __read_num_per_thread = __read_num_per_thread - (op_gaps[round]  * update_num_thread); // 要保留无法整除的部分
-
-                divisible_thread_get_nums[round] = (op_gaps[round] *update_num_thread);
-            }
-            else
-            {
-                op_gaps[round] = (int)ceil((double)update_num_thread / (double)__read_num_per_thread);  // 要保留无法整除的部分
-                __read_num_per_thread = __read_num_per_thread - (update_num_thread / op_gaps[round]); // 要保留无法整除的部分
-                if (little_idx==-1)
-                    little_idx=round;  
-
-                divisible_thread_get_nums[round] = (update_num_thread / op_gaps[round]);
-            }
-            ERROR_LOG("count:[%d], op_gaps:[%d], divisible_get_nums[%d], __read_num_per_thread[%d]", round, op_gaps[round], divisible_thread_get_nums[round], __read_num_per_thread);
-            round++;
-            end_round = round;
-        }
-
-        ERROR_LOG("Divide finished!");
-        // 每执行了 op_gap_2 个 set 之后需要额外执行 1 次 get 
-        for (i=0; i<4; i++)
-            final_get_num_per_threads += divisible_thread_get_nums[i];
-
-        final_get_num_per_node =  final_get_num_per_threads * (int)PARTITION_NUMS;
-        final_set_num_per_node = update_num_thread * (int)PARTITION_NUMS;
-        //read_num = final_get_num_per_node * available_r_node_num;
-        read_num = final_get_num_per_node;
-        __access_num = read_num + final_set_num_per_node;
-
-        if (little_idx == -1)
-            little_idx = end_round;
-        ERROR_LOG("FINALLY: final_get_num_per_threads[%d],  final_get_num_per_node:[%d], update_num_thread [%d],  final_set_num_per_node[%d]", final_get_num_per_threads, final_get_num_per_node,update_num_thread,  final_set_num_per_node);
-        ERROR_LOG("FINALLY: little_idx[%d], end_round [%d], available_r_node_num is [%d]", little_idx, end_round, available_r_node_num);
-        ERROR_LOG("Total op num is [%d] ,read_op is [%d], set_op is [%d]", __access_num, read_num, final_set_num_per_node);
-        Assert(little_idx != -1 && little_idx <= end_round);
-    }
-    else
-    {   
-        // 纯读纯写的数量默认是 3000
-        // 纯写无所谓
-        // 纯读需要被副本节点数量整除
-        if (read_num % available_r_node_num != 0)
-        {
-            ERROR_LOG("read_num mod available_r_node_num != 0");
-            exit(0);
-        }
-
+    little_idx=-1;      
+	 __test_size = server_instance->config.nets_cnt * __test_size;
+                update_num = PARTITION_NUMS * TOTAL_OPT_NUMS;
+		if(workload_WriteRate == (double)150)
+		{
+			update_num = PARTITION_NUMS*200;
+	}
+			read_num = workload_WriteRate *  (double)update_num;
         __access_num = read_num + update_num;
         ERROR_LOG("Total op num is [%d] ,read_op is [%d], set_op is [%d]", __access_num, read_num, update_num);
-    }
+		
 
+
+
+ startwork = 0;
+	init_mulit_server_work_thread();
     // op_gap;
     partition_req_count_array = (int*) malloc(sizeof(int) * PARTITION_NUMS);
     memset(partition_req_count_array, 0, sizeof(int) * PARTITION_NUMS);
@@ -279,10 +280,10 @@ int main(int argc,char *argv[])
     Assert(client_mgr);
     avg_partition_count_num = update_num /(int) PARTITION_NUMS;
 
-    // 生成本地读负载
+
     generate_test_data((size_t)0, (size_t)1, (size_t)__test_size , (size_t)TEST_KV_NUM);
-    if (!is_all_set_all_get)
-        generate_local_get_mgs_handler((size_t)read_num);
+//    if (!is_all_set_all_get)
+        generate_local_get_mgs_handler((size_t) ReadMsg);
 
     next_node_mappings = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
     memset(next_node_mappings, 0, sizeof(struct replica_mappings));
@@ -297,7 +298,7 @@ int main(int argc,char *argv[])
         Assert(server_instance->server_id == 0);
     }
 
-    // 主节点和镜像节点初始化本地hash表
+
     if (IS_MAIN(server_instance->server_type))
     {
         mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
@@ -305,7 +306,7 @@ int main(int argc,char *argv[])
         mehcached_table_init(log_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
 
-        memset(mirror_node_mapping, 0, sizeof(struct replica_mappings) * PARTITION_MAX_NUMS);
+        memset(mirror_node_mapping, 0, sizeof(struct replica_mappings) * PARTITION_MAX_NUMS*MIRROR_NODE_NUM);
         Assert(main_table);
     }
 
@@ -316,39 +317,50 @@ int main(int argc,char *argv[])
         Assert(main_table);
     }
 
-    // 主节点初始化远端hash表，镜像节点初始化自己本地的hash表
-    //mehcached_node_init();
+
 	if (IS_MAIN(server_instance->server_type))
     {
 		MID_LOG("Node [%d] do MAIN node init work", server_instance->server_id);
         // 向所有副本节点发送 main_table 初始化请求
-		Assert(server_instance->server_id == MAIN_NODE_ID ||
-				server_instance->server_id == MIRROR_NODE_ID);
+        Assert(server_instance->server_id  < REPLICA_NODE_HEAD_ID);
 		size_t nid;
 		size_t init_nums = 0;
 		bool* inited_state = (bool *) malloc(sizeof(bool) * server_instance->node_nums);
 		memset(inited_state, false, sizeof(bool) * server_instance->node_nums);
-
 		// for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
-		micaserver_get_cliMR(next_node_mappings, REPLICA_NODE_HEAD_ID);
 
-        // 主节点需要知道镜像节点的一块mr地址
-        micaserver_get_cliMR(&mirror_node_mapping[0], MIRROR_NODE_ID);
+		//size_t mapping_nums = get_mapping_nums();
+        struct ibv_mr* leader_mr = malloc(4 * sizeof(struct ibv_mr));
+        copy_mapping_mrs_info(leader_mr);
+        ERROR_LOG("leader_mr = %p %p %p %p",leader_mr->addr, leader_mr[1].addr,  leader_mr[2].addr, leader_mr[3].addr);
+		memcpy(&local_mr[1],&leader_mr[1],sizeof(struct ibv_mr));
+	
 
-        for (i=1; i<(int)PARTITION_NUMS; i++)
-            memcpy(&mirror_node_mapping[i], &mirror_node_mapping[0], sizeof(struct replica_mappings));
+  
+		init_nums = 1;
+         while (init_nums < REPLICA_NODE_HEAD_ID)
+         {
+             micaserver_get_cliMR(&mirror_node_mapping[init_nums][0], init_nums);
+             for (i=1; i < (int)PARTITION_NUMS; i++)
+                 memcpy(&mirror_node_mapping[init_nums][i], &mirror_node_mapping[init_nums][0], sizeof(struct replica_mappings));
+ 			init_nums++;
+         }
+         init_nums = 0;
 
-		// 等待全部节点初始化完成,才能开放服务
-		// 因为是主节点等待，所以主节点主动去轮询，而不是被动等待从节点发送完成信号
+		if(REPLICA_NODE_NUMS > 0)
+             micaserver_get_cliMR(next_node_mappings, REPLICA_NODE_HEAD_ID);
+
+
 		while (init_nums < REPLICA_NODE_NUMS)
 		{
 			enum ack_info_state ack_state;
             init_nums = 0;
+			ERROR_LOG("replica %d %d",REPLICA_NODE_NUMS,init_nums);
 			for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++) 
 			{
 				if (inited_state[nid] == false)
 				{
-					ack_state = mica_basic_ack_req(nid, MICA_INIT_ADDR_ACK, true);
+					ack_state = mica_basic_ack_req(nid, MICA_INIT_ADDR_ACK, true, leader_mr);
 					if (ack_state == MICA_ACK_INIT_ADDR_OK)
 					{
 						inited_state[nid] = true;
@@ -369,44 +381,31 @@ int main(int argc,char *argv[])
 			}
 		}
 
-        // 启动网卡线程
-        // for (i=0; i<nic_thread_num; i++)
-        // {
-        //     int64_t nic_id = (int64_t)i;
-        //     retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)nic_id);
-        //     if(retval)
-        //     {
-        //         ERROR_LOG("pthread create error.");
-        //         return -1;
-        //     }
-        // }
-		INFO_LOG("---------------------------MAIN node init finished!------------------------------");
+         for (i=0; i<nic_thread_num; i++)
+         {
+             int64_t nic_id = (int64_t)i;
+             int retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)nic_id);
+             if(retval)
+             {
+                 ERROR_LOG("pthread create error.");
+                 return -1;
+             }
+        }
+		ERROR_LOG("---------------------------MAIN node init finished!------------------------------");
 
-#ifdef MAIN_NODE_TEST
-        // 主节点启动测试程序
-        struct test_kv * kvs = generate_test_data(10, 10, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs);
-        struct test_kv * kvs2 = generate_test_data(10, 20, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs2);
-        struct test_kv * kvs3 = generate_test_data(10, 30, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs3);
-        // test_set(kvs, 100);
-        // test_set(kvs, 1000);
-#endif
     }
 
 	if (IS_MIRROR(server_instance->server_type))
 	{
-		// 镜像节点只需要负责初始化自己的hash表即可，不需要知道副本节点的存储地址
+		
 		MID_LOG("Node [%d] is mirror node, don't do any init work", server_instance->server_id);
-        INFO_LOG("---------------------------MIRROR node init finished!---------------------------");
+        ERROR_LOG("---------------------------MIRROR node init finished!---------------------------");
 	}
 
-    // 存在下游节点的副本节点向下游节点发送初始化请求
+
 	if(IS_REPLICA(server_instance->server_type))
     {
-        // 各个副本节点使用 主线程 检查是否已经和 主节点，上游节点 建立连接
-        // 副本节点是 server ， 主节点和上游节点是 client
+
         struct dhmp_transport *rdma_trans=NULL;
         int expected_connections;
         int active_connection = 0;
@@ -414,43 +413,31 @@ int main(int argc,char *argv[])
     
         if (!IS_TAIL(server_instance->server_type))
         {
-            if (server_instance->node_nums > 3)
+            if (REPLICA_NODE_NUMS> 1)
             {
-                // 向下游节点发送 main_table 初始化请求
+   
                 size_t target_id = server_instance->server_id + 1;
                 Assert(target_id != server_instance->node_nums);
 
                 micaserver_get_cliMR(next_node_mappings, target_id);
-            }
 
-            // 启动网卡线程
-            //pthread_create(&nic_thread, NULL, *replica_node_nic_thread_ptr, NULL);
-            // for (i=0; i<nic_thread_num; i++)
-            // {
-            //     int64_t nic_id = (int64_t)i;
-            //     retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)nic_id);
-            //     if(retval)
-            //     {
-            //         ERROR_LOG("pthread create error.");
-            //         return -1;
-            //     }
-            // }
+
+             for (i=0; i<nic_thread_num; i++)
+             {
+                 int64_t nic_id = (int64_t)i;
+                 int retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)nic_id);
+                 if(retval)
+                 {
+                     ERROR_LOG("pthread create error.");
+                     return -1;
+                 }
+             }
             MID_LOG("Node [%d] is started nicthread and get cliMR!", server_instance->server_id);
+			}
         }
 
-        // if (server_instance->server_id == REPLICA_NODE_HEAD_ID)
-        //     up_node = 0;    // 链表中的头节点没用上游节点
-        // else
-        //     up_node = server_instance->server_id-1;
-
-        // Assert(up_node != (size_t)-1);
-
-        if (server_instance->server_id == REPLICA_NODE_HEAD_ID)
-            expected_connections = 1;  // 链表中的头节点只需要被动接受主节点的连接
-        else
-            expected_connections = 2;  // 非头节点需要被动接受主节点和上游节点的连接
+            expected_connections = (int)PARTITION_NUMS *2+ 1;  // 非头节点需要被动接受主节点和上游节点的连接
         
-        INFO_LOG("wait mica_ask_nodeID_req");
         while (true)
         {
             pthread_mutex_lock(&server_instance->mutex_client_list);
@@ -458,17 +445,19 @@ int main(int argc,char *argv[])
             {
                 list_for_each_entry(rdma_trans, &server_instance->client_list, client_entry)
                 {
+					
+					
+				//	if(active_connection < 2) {active_connection++; continue;} 
                     if (rdma_trans->node_id == -1)
                     {
-                        // 由于只有dhmp客户端可以在建立连接的时候显式的标记 dhmp_trans 的 peer_nodeid
-                        // 而对于dhmp服务端来说只能使用 rpc 的方式确定每一个 trans 所对应的 peer_nodeid
+
                         int peer_id = mica_ask_nodeID_req(rdma_trans);
                         if (peer_id == -1)
                         {
                             pthread_mutex_unlock(&server_instance->mutex_client_list);
                             break;
                         }
-                        active_connection++;
+                       active_connection++;
                         rdma_trans->node_id = peer_id;
                     }
                     INFO_LOG("Replica node [%d] get \"dhmp client\" (MICA MAIN node or upstream node) id is [%d], success!", \
@@ -479,31 +468,32 @@ int main(int argc,char *argv[])
 
             if (active_connection == expected_connections)
                 break;
+//			active_connection = 0;
         }
 
         while(get_table_init_state() == false);
 
-        // 在 replica_is_ready 为真之前副本节点不会接受其他节点发送来的 set, get , update 双边操作
+  
         replica_is_ready = true;
-        INFO_LOG("---------------------------Replica Node [%d] init finished!---------------------------", server_instance->server_id);
+        ERROR_LOG("---------------------------Replica Node [%d] init finished!---------------------------", server_instance->server_id);
     }
 
 #ifdef MAIN_LOG_DEBUG_THROUGHOUT
     if (IS_MAIN(server_instance->server_type))
     {
-        sleep(3);
+		sleep(5);
         set_workloada_server();
     }
+
 #endif
 
     pthread_join(server_instance->ctx.epoll_thread, NULL);
-    // pthread_join(server_instance->ctx.busy_wait_cq_thread, NULL);
     return 0;
 }
 
 
-struct dhmp_msg* 
-pack_test_set_resq(struct test_kv * kvs, int tag)
+struct dhmp_msg * 
+pack_test_set_resq(struct test_kv * kvs, int tag, int partition_id)
 {
     void * base;
     struct dhmp_msg* msg;
@@ -512,38 +502,33 @@ pack_test_set_resq(struct test_kv * kvs, int tag)
     size_t key_length  = kvs->true_key_length +  KEY_TAIL_LEN;
     size_t value_length= kvs->true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN;
     size_t total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + key_length + value_length;
-    size_t tmp_key;
     msg = (struct dhmp_msg*)malloc(sizeof(struct dhmp_msg));
 	base = malloc(total_length); 
 	memset(base, 0 , total_length);
 	req_msg  = (struct post_datagram *) base;
 	req_data = (struct dhmp_mica_set_request *)((char *)base + sizeof(struct post_datagram));
 	
-    // 填充公共报文
-	req_msg->node_id = MAIN;	 // 向对端发送自己的 node_id 用于身份辨识
+
+	req_msg->node_id = MAIN;	
 	req_msg->req_ptr = req_msg;
 	req_msg->done_flag = false;
 	req_msg->info_type = MICA_SET_REQUEST;
 	req_msg->info_length = sizeof(struct dhmp_mica_set_request);
 
-	// 填充私有报文
+
 	req_data->current_alloc_id = 0;
 	req_data->expire_time = 0;
 	req_data->key_hash = kvs->key_hash;
 	req_data->key_length = key_length;
-	req_data->value_length = value_length;	// 这里的 value 长度是包含了value头部和尾部的长度
+	req_data->value_length = value_length;	
 	req_data->overwrite = true;
 	req_data->is_update = false;
 	req_data->tag = (size_t)tag;
 
     // req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
     
-    tmp_key = *((size_t*)(kvs->key));
-    tmp_key = tmp_key>>16;
-	req_data->partition_id = ((int) tmp_key) % ((int)PARTITION_NUMS);
+	req_data->partition_id = partition_id;
 
-    //ERROR_LOG("tmp_key is %ld, part id:%d",tmp_key, req_data->partition_id);
-    Assert(tmp_key <= (size_t)TEST_KV_NUM);
     partition_req_count_array[req_data->partition_id]++;
 
 	memcpy(&(req_data->data), kvs->key, kvs->true_key_length);		// copy key
@@ -556,13 +541,13 @@ pack_test_set_resq(struct test_kv * kvs, int tag)
     msg->trans = NULL;
     msg->recv_partition_id = -1;
     msg->partition_id = req_data->partition_id;
-    // msg->main_thread_set_id = 0; main_thread_set_id 在运行时被设置
+
     Assert(msg->list_anchor.next != LIST_POISON1 && msg->list_anchor.prev!= LIST_POISON2);
     return msg;
 }
 
 struct dhmp_msg* 
-pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
+pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length, int partition_id)
 {
   	void * base;
 	void * data_addr;
@@ -572,9 +557,8 @@ pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
     struct dhmp_mica_get_response* get_resp;
     size_t key_length = kvs->true_key_length+KEY_TAIL_LEN;
 	size_t total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_get_request) + key_length;
-    size_t tmp_key;
 
-	// 如果有指针可以 reuse ，那么 reuse
+
     msg = (struct dhmp_msg*)malloc(sizeof(struct dhmp_msg));
     base = malloc(total_length);
     memset(base, 0 , total_length);
@@ -583,23 +567,21 @@ pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
 	req_msg  = (struct post_datagram *) base;
 	req_data = (struct dhmp_mica_get_request *)((char *)base + sizeof(struct post_datagram));
 
-	// 填充公共报文
-	req_msg->node_id = (int)server_instance->server_id;	 // 向对端发送自己的 node_id 用于身份辨识
+
+	req_msg->node_id = (int)server_instance->server_id;	 
 	req_msg->req_ptr = req_msg;
 	req_msg->done_flag = false;
 	req_msg->info_type = MICA_GET_REQUEST;
 	req_msg->info_length = sizeof(struct dhmp_mica_get_request);
 
-	// 填充私有报文
+
 	req_data->current_alloc_id = 0;
 	req_data->key_hash = kvs->key_hash;
 	req_data->key_length = key_length;
 	req_data->get_resp = get_resp;
 	req_data->peer_max_recv_buff_length = (size_t)expect_length;
 
-    tmp_key = *((size_t*)(kvs->key));
-    tmp_key = tmp_key>>16;
-	req_data->partition_id = ((int) tmp_key) % ((int)PARTITION_NUMS);
+	req_data->partition_id = partition_id;
 
 	req_data->tag = (size_t)tag;
 	data_addr = (void*)req_data + offsetof(struct dhmp_mica_get_request, data);
@@ -616,27 +598,50 @@ pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
     return msg;
 }
 
-void generate_local_get_mgs_handler(size_t avg_parition_read_max_length)
-{
-    int i;
-    int max_num = update_num > read_num ? update_num : read_num;
 
-    for (i=0; i<(int)PARTITION_NUMS; i++)
-        get_msg_readonly[i] = pack_test_get_resq(&kvs_group[i], i, (size_t)__test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
+size_t max_num;
+void generate_local_get_mgs_handler(size_t read_per_node)
+{
+     max_num = (size_t)update_num > read_per_node ? (size_t)update_num : read_per_node;
+
+	struct dhmp_msg* msg ;
+ 	int i,j,idx;
+//	for(i=0;i<PARTITION_NUMS;i++)read_list[i] = (struct dhmp_msg**)malloc(sizeof(struct dhmp_msg*) * (read_per_node/PARTITION_NUMS+5));
+	
+     int count[PARTITION_MAX_NUMS]= {0};
+	for(j=0;j<(int)PARTITION_NUMS;j++)
+	{
+     for (i=0; i<(int)read_per_node; i++)
+     {
+         idx = i % TEST_KV_NUM; /* idx = rand() % TEST_KV_NUM;*/
+         msg = pack_test_get_resq(&kvs_group[idx], i, (size_t)__test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN,j);
+		read_list[j][count[j]%ReadMsg] = msg;
+         count[j]++;
+     }
+	}
+     for(i=0;i<(int)PARTITION_NUMS;i++)
+         ERROR_LOG("generate read[%d] [%d]",i,count[i]);
+
 
     switch (workload_type)
     {
         case UNIFORM:
+			for(i=0; i<(int)PARTITION_NUMS;i++)
+			{
+				rand_num_partition[i] =  (int *)malloc(sizeof(int) * (size_t)max_num);
+				pick_uniform(pf_partition, rand_num_partition[i] , (int)max_num);
+				write_num_partition[i] = (int *)malloc(sizeof(int) * (size_t)max_num);
+				pick_uniform(pf_partition, write_num_partition[i] , (int)max_num);
+			}
             break;
         case ZIPFIAN:
             for(i=0; i<(int)PARTITION_NUMS;i++)
             {
-                pf_partition[i] = (double *)malloc(sizeof(double)  * (size_t)max_num);
                 rand_num_partition[i] =  (int *)malloc(sizeof(int) * (size_t)max_num);
                 write_num_partition[i] = (int *)malloc(sizeof(int) * (size_t)max_num);
 
-                pick_zipfian(pf_partition[i], rand_num_partition[i] , (int)max_num);
-                pick_zipfian(pf_partition[i], write_num_partition[i] , (int)max_num);
+                pick_zipfian(pf_partition, rand_num_partition[i] , (int)max_num);
+                pick_zipfian(pf_partition, write_num_partition[i] , (int)max_num);
             }
             break;
         default:
@@ -647,240 +652,25 @@ void generate_local_get_mgs_handler(size_t avg_parition_read_max_length)
 
 void set_workloada_server()
 {
-	int i = 0;
+	int i,j = 0;
     int idx;
     int set_workload_max_nums = TEST_KV_NUM;
-    set_msgs_group = (struct dhmp_msg**) malloc( (size_t)update_num * sizeof(void*));
-
-    for (i=0; i<(int)update_num;i++)
+    for(j = 0;j<(int)PARTITION_NUMS;j++)
     {
-        idx = i % set_workload_max_nums;
-        set_msgs_group[i] = pack_test_set_resq(&kvs_group[idx], i);
+        set_msgs_group = (struct dhmp_msg**) malloc( (size_t)(update_num/PARTITION_NUMS) * sizeof(void*));
+        for (i=0; i< (update_num/PARTITION_NUMS);i++)
+        {
+            idx = i % set_workload_max_nums;
+            set_msgs_group[i] = pack_test_set_resq(&kvs_group[write_num_partition[j][idx]], i,j);
+            set_msgs_group[i]->partition_id = j;
+            bool is_async;
+            dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async, 0, 0, false);
+        }
+
     }
-
-#ifdef PERF_TEST
-    int repeat=0;
-    while (repeat<1000)
-    {
-#endif
-	for(i=0;i < update_num ;i++)
-	{
-        bool is_async;
-        dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async, 0, 0, false);
-	}
-#ifdef PERF_TEST
-        repeat++;
-    }
-#endif
-    sleep(3);
-}
-
-// 测试所有节点中的数据必须一致
-void test_get_consistent(struct test_kv * kvs MEHCACHED_UNUSED)
-{
-    // size_t i, nid;
-    // INFO_LOG("---------------------------test_get_consistent!---------------------------");
-    // for (i = 0; i < TEST_KV_NUM; i++)
-    // {
-    //     const uint8_t* key = kvs[i].key;
-    //     const uint8_t* value = kvs[i].value;
-    //     size_t true_key_length = kvs[i].true_key_length;
-    //     size_t true_value_length = kvs[i].true_value_length;
-    //     uint64_t key_hash = hash(key, true_key_length);
-    //     uint8_t* out_value = (uint8_t*)malloc(true_value_length);
-    //     size_t  out_value_length;
-    //     uint32_t expire_time;
-    //     struct dhmp_mica_get_response *get_result = NULL;
-
-    //     struct mehcached_item * item = kvs[i].item;
-    //     Assert(item != NULL);
-
-    //     // 测试本地 table 数据一致
-    //     if (!mid_mehcached_get_warpper(0, main_table, key_hash, key, true_key_length,
-    //                                  out_value, &out_value_length,
-    //                                  &expire_time, false, true))
-    //     {
-    //         ERROR_LOG("key hash [%lx] get false", key_hash);
-    //         Assert(false);
-    //     }
-
-    //     if (!cmp_item_value(true_value_length, value, out_value_length, out_value))
-    //     {
-    //         ERROR_LOG("local item key_hash [%lx] value compare false!", key_hash);
-    //         Assert(false);
-    //     }
-    //     INFO_LOG("No.<%d> Main Node [%d] set test success!", i, MAIN_NODE_ID);
-
-    //     // 测试镜像节点数据一致
-    //     get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, MIRROR_NODE_ID, server_instance->server_id, out_value_length, (size_t)i);
-    //     if (get_result == NULL || get_result->out_value_length == (size_t) - 1)
-    //     {
-    //         ERROR_LOG("MICA get key %lx failed!", key_hash);
-    //         Assert(false);
-    //     }
-    //     if (get_result->partial == true)
-    //     {
-    //         ERROR_LOG("value too long!");
-    //         Assert(false);
-    //     }
-
-    //     if (!cmp_item_value(true_value_length, value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
-    //     {
-    //         ERROR_LOG(" item key_hash [%lx] value compare false!", key_hash);
-    //         Assert(false);
-    //     }
-
-    //     if (!cmp_item_all_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
-    //     {
-    //         ERROR_LOG("Mirror item key_hash [%lx] value compare false!", key_hash);
-    //         Assert(false);
-    //     }
-    //     free(get_result);
-    //     INFO_LOG("No.<%d>, Mirror Node [%d] set test success!", i, MIRROR_NODE_ID);
-
-    //     // 测试远端 replica 节点数据一致
-    //     for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
-    //     {
-    //         // 如果 version 不一致，需要反复尝试get直到一致后才会返回结果
-    //         while(true)
-    //         {
-    //             // 远端获取的默认是带header和tailer的value
-    //             get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, nid, server_instance->server_id, out_value_length, (size_t)i);
-    //             if (get_result == NULL)
-    //             {
-    //                 ERROR_LOG("MICA get key %lx failed!", key_hash);
-    //                 Assert(false);
-    //             }
-                
-    //             if (get_result->out_value_length != (size_t) - 1)
-    //                 break;
-    //         }
- 
-    //         if (get_result->partial == true)
-    //         {
-    //             ERROR_LOG("value too long!");
-    //             Assert(false);
-    //         }
-
-    //         if (!cmp_item_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
-    //         {
-    //             ERROR_LOG("Replica node [%d] item key_hash [%lx] value compare false!", nid, key_hash);
-    //             Assert(false);
-    //         }
-    //         INFO_LOG("No.<%d> Replica Node [%d] set test success!",i, nid);
-    //         free(get_result);
-    //     }
-
-    //     INFO_LOG("No.<%d> Key_hash [%lx] pas all compare scuess!", i, key_hash);
-    // }
-    // INFO_LOG("---------------------------test_get_consistent finish!---------------------------");
-}
-
-
-void
-test_set(struct test_kv * kvs MEHCACHED_UNUSED)
-{
-    /*
-    INFO_LOG("---------------------------test_set()---------------------------");
-    Assert(main_table);
-
-    size_t i;
-    size_t nid;
-    struct set_requset_pack *req_callback_ptr = (struct set_requset_pack *)\
-            malloc(sizeof(struct set_requset_pack) * server_instance->node_nums);
-                 
-    for (i = 0; i < TEST_KV_NUM; i++)
-    {
-        bool is_update, is_maintable = true;
-        struct mehcached_item * item;
-        const uint8_t* key = kvs[i].key;
-        //size_t new_value = i + val_offset;
-        //memcpy(kvs_group[i].value, &new_value, kvs_group[i].true_value_length);  // 更新value
-        const uint8_t* value = kvs[i].value;
-        size_t true_key_length = kvs[i].true_key_length;
-        size_t true_value_length = kvs[i].true_value_length;
-        size_t item_offset;
-        uint64_t key_hash = hash(key, true_key_length);
     
-        item = midd_mehcached_set_warpper(0, main_table, key_hash,\
-                                         key, true_key_length, \
-                                         value, true_value_length, 0, true, &is_update, &is_maintable, NULL);
-
-        // Assert(is_update == false);
-
-        if (item == NULL)
-        {
-            ERROR_LOG("Main node set fail! keyhash is %lx", key_hash);
-            exit(0);
-        }
-        kvs[i].item = item;
-
-        // 镜像节点全value赋值
-        for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
-        {
-            mica_set_remote_warpper(0, 
-                                    kvs[i].key,
-                                    key_hash, 
-                                    true_key_length, 
-                                    kvs[i].value,
-                                    true_value_length, 
-                                    0, true,
-                                    true, 
-                                    &req_callback_ptr[nid],
-                                    nid,
-                                    is_update,
-                                    server_instance->server_id,
-                                    nid);
-        }
-
-        for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
-        {
-            while(req_callback_ptr[nid].req_ptr->done_flag == false);
-
-            if (req_callback_ptr[nid].req_info_ptr->out_mapping_id == (size_t)-1)
-            {
-                ERROR_LOG("Main node set node[%d] key_hash [%lx] failed!", nid, req_callback_ptr[nid].req_info_ptr->key_hash);
-                exit(0);
-            }
-            else
-            {
-                // 主节点只需要保存直接下游节点的 mr 信息即可
-                if (nid == REPLICA_NODE_HEAD_ID)
-                {
-                    item->mapping_id = req_callback_ptr[nid].req_info_ptr->out_mapping_id;
-                    item->remote_value_addr = req_callback_ptr[nid].req_info_ptr->out_value_addr;
-                    INFO_LOG("Main node set node[%d] key_hash [%lx] success!, mapping id is %u, remote addr is %p", \
-                                    nid, item->key_hash, item->mapping_id, item->remote_value_addr);
-                }
-            }
-
-            free(req_callback_ptr[nid].req_ptr);
-        }
-
-        INFO_LOG("key hash [%lx] set to all replica node success!", key_hash);
-
-        if (is_maintable)
-            item_offset = get_offset_by_item(main_table, item);
-        else
-            item_offset = get_offset_by_item(log_table, item);
- 
-        // 只写直接下游节点
-        // 还需要返回远端 value 的虚拟地址， 用来求偏移量
-        makeup_update_request(item, item_offset,\
-                             (uint8_t*)item_get_value_addr(item), \
-                             MEHCACHED_VALUE_LENGTH(item->kv_length_vec),
-                             nid);
- 
-        INFO_LOG("key hash [%lx] notices downstream replica node!", key_hash);
-    }
-
-    free(req_callback_ptr);
-    mehcached_print_stats(main_table);
-    mehcached_print_stats(log_table);
-    // mehcached_table_free(main_table);
-    INFO_LOG("---------------------------test_set finished!---------------------------");
-    // 主线程等待1s，让输出更清晰一点
-    sleep(1);
-    test_get_consistent(kvs);
-    */
+    set_workload_OK = 1;
 }
+
+
+

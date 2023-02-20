@@ -104,7 +104,7 @@ int dhmp_context_del_event_fd(struct dhmp_context *ctx, int fd)
 		ERROR_LOG("dhmp_context del event fd error.");
 	else
 	{
-		INFO_LOG("dhmp_context del event fd success.");
+//		INFO_LOG("dhmp_context del event fd success.");
 	}
 
 	return retval;

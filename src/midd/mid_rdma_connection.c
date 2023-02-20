@@ -191,67 +191,12 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 
 	dcq->device=device;
 
-	// 经过修改后有多个线程去轮询不同的cq
-	// for (i=0 ;i<MAX_CQ_NUMS;i++){
-	// 	if (ctx->stop_flag[i] == true)
-	// 		break;
-	// }
-
-	// if (i == MAX_CQ_NUMS)
-	// {
-	// 	ERROR_LOG("MAX_CQ_NUMS");
-	// 	exit(-1);
-	// }
-
-	// struct sched_param schedp;
-	// pthread_attr_t attr;
-
-	// pthread_attr_init(&attr);
-	// memset(&schedp, 0, sizeof(schedp));
-
-	// retval = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
-	// if (retval) {
-	// 	printf("pthread_attr_setinheritsched:%d\n", retval);
-	// 	return NULL;
-	// }
-
-	// retval = pthread_attr_setschedpolicy(&attr, SCHED_RR);
-	// if (retval) {
-	// 	printf("pthread_attr_setschedpolicy:%d\n", retval);
-	// 	return NULL;
-	// }
-
-	// schedp.sched_priority = 99;
-	// retval = pthread_attr_setschedparam(&attr, &schedp);
-	// if (retval) {
-	// 	printf("pthread_attr_setschedparam:%d\n", retval);
-	// 	return NULL;
-	// }
+	
 	ctx->cq_id = total_cq_nums;
 	dcq->cq_id = ctx->cq_id;
 	dcq_array[ctx->cq_id] = dcq;
 	total_cq_nums++;
-/*
-	cpu_set_t cpuset;
-	CPU_ZERO(&cpuset);
-	if (SERVER_ID < 4)
-		CPU_SET(PARTITION_NUMS+trans_thread_idx, &cpuset);
-	else
-		CPU_SET(PARTITION_NUMS+trans_thread_idx+20, &cpuset);
-	ctx->stop_flag[i] = false;
-	dcq->stop_flag_ptr = &ctx->stop_flag[i];
-	retval=pthread_create(&ctx->busy_wait_cq_thread[i], NULL, busy_wait_cq_handler, (void*)dcq);
-	if(retval)
-	{
-		ERROR_LOG("context add comp channel fd error.");
-		goto cleanchannel;
-	}
-	retval = pthread_setaffinity_np(ctx->busy_wait_cq_thread[i], sizeof(cpu_set_t), &cpuset);
-	if (retval != 0)
-		handle_error_en(retval, "pthread_setaffinity_np");
 
-	trans_thread_idx++;
-*/
 	return dcq;
 
 cleaneventfd:
@@ -318,14 +263,13 @@ static void dhmp_qp_release(struct dhmp_transport* rdma_trans)
 {
 	if(rdma_trans->qp)
 	{
-		// 终止 cq 轮询线程
 		dcq_array[rdma_trans->dcq->cq_id] = NULL;
 		total_cq_nums--;
 
 		ibv_destroy_qp(rdma_trans->qp);
 		ibv_destroy_comp_channel(rdma_trans->dcq->comp_channel);
 		ibv_destroy_cq(rdma_trans->dcq->cq);
-		// ibv_dealloc_pd(rdma_trans->dcq->device->pd);	// 加上会段错误
+		// ibv_dealloc_pd(rdma_trans->dcq->device->pd);	
 		// dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->dcq->comp_channel->fd);
 		free(rdma_trans->dcq);
 		rdma_trans->dcq=NULL;
@@ -401,45 +345,35 @@ struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx,
 		goto out;
 	}
 
-	/*Test device */
-	// struct dhmp_device * server_dev = dhmp_get_dev_from_server();
-	// struct dhmp_device * client_dev = dhmp_get_dev_from_server();
-	// struct dhmp_device * trans_dev = rdma_trans->device;
-
-	// if (memcmp(server_dev, client_dev, sizeof(struct dhmp_device) - sizeof(struct list_head)) != 0 ||
-	// 	memcmp(server_dev->pd->context, trans_dev->pd->context, sizeof(struct ibv_pd)) != 0)
-	// {
-	// 	ERROR_LOG("device select error!");
-	// 	exit(1);
-	// }
+	
 
 	if(!is_listen)
 	{
-		for (i=0; i<PARTITION_NUMS+1; i++)
-		{
+		// for (i=0; i<PARTITION_NUMS+1; i++)
+		// {
 			err=dhmp_memory_register(dev->pd,
-									&(rdma_trans->send_mr[i]),
+									&(rdma_trans->send_mr),
 									SEND_REGION_SIZE);
 			if(err)
 				goto out_event_channel;
 
 			err=dhmp_memory_register(dev->pd,
-									&(rdma_trans->recv_mr[i]),
+									&(rdma_trans->recv_mr),
 									RECV_REGION_SIZE);
 			if(err)
 				goto out_send_mr;
-		}
+		// }
 
 		rdma_trans->is_poll_qp=is_poll_qp;
 	}
 	
 	return rdma_trans;
 out_send_mr:
-	for (i=0; i<PARTITION_NUMS+1; i++)
-	{
-		ibv_dereg_mr(rdma_trans->send_mr[i].mr);
-		free(rdma_trans->send_mr[i].addr);
-	}
+	// for (i=0; i<PARTITION_NUMS+1; i++)
+	// {
+		ibv_dereg_mr(rdma_trans->send_mr.mr);
+		free(rdma_trans->send_mr.addr);
+	// }
 
 out_event_channel:
 	dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->event_channel->fd);
@@ -456,20 +390,20 @@ out:
 static void dhmp_destroy_source(struct dhmp_transport* rdma_trans)
 {
 	int i;
-	for (i=0; i<PARTITION_NUMS+1; i++)
-	{
-		if(rdma_trans->send_mr[i].addr)
+	// for (i=0; i<PARTITION_NUMS+1; i++)
+	// {
+		if(rdma_trans->send_mr.addr)
 		{
-			ibv_dereg_mr(rdma_trans->send_mr[i].mr);
-			free(rdma_trans->send_mr[i].addr);
+			ibv_dereg_mr(rdma_trans->send_mr.mr);
+			free(rdma_trans->send_mr.addr);
 		}
 
-		if(rdma_trans->recv_mr[i].addr)
+		if(rdma_trans->recv_mr.addr)
 		{
-			ibv_dereg_mr(rdma_trans->recv_mr[i].mr);
-			free(rdma_trans->recv_mr[i].addr);
+			ibv_dereg_mr(rdma_trans->recv_mr.mr);
+			free(rdma_trans->recv_mr.addr);
 		}
-	}
+	// }
 
 	rdma_destroy_qp(rdma_trans->cm_id);
 	dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->dcq->comp_channel->fd);
@@ -516,7 +450,7 @@ static int on_cm_route_resolved(struct rdma_cm_event* event, struct dhmp_transpo
 		ERROR_LOG("rdma connect error.");
 		goto cleanqp;
 	}
-	INFO_LOG("on_cm_route_resolved success!");
+	//INFO_LOG("on_cm_route_resolved success!");
 	dhmp_post_all_recv(rdma_trans);
 	return retval;
 
@@ -527,9 +461,7 @@ cleanqp:
 	return retval;
 }
 
-// 需要注意的是，我们还无法在 on_cm_connect_request 阶段获取到对端的 node_id
-// RDMA_CM_EVENT_CONNECT_REQUEST 事件是由监听 trans 触发的
-// RDMA_CM_EVENT_ESTABLISHED 事件是由在 on_cm_connect_request 创建的新连接的 trans 触发的
+
 static int on_cm_connect_request(struct rdma_cm_event* event, 
 										struct dhmp_transport* rdma_trans)
 {
@@ -586,12 +518,15 @@ static int on_cm_connect_request(struct rdma_cm_event* event,
 	new_trans->trans_state=DHMP_TRANSPORT_STATE_CONNECTING;
 	dhmp_post_all_recv(new_trans);
 
-	// 新增当前server的客户端连接数目
+
 	pthread_mutex_lock(&server_instance->mutex_client_list);
+new_trans->partition_id = server_instance->cur_connections ;
+	if(IS_MIRROR(server_instance->server_type))
+new_trans->node_id = 0;
 	++server_instance->cur_connections;
 	list_add_tail(&new_trans->client_entry, &server_instance->client_list);
 	pthread_mutex_unlock(&server_instance->mutex_client_list);
-
+	ERROR_LOG("get %d-th trans %p",server_instance->cur_connections,new_trans);
 	return retval;
 
 out:
@@ -634,20 +569,7 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 		cq_thread_stop_flag = false;
 	}
 #endif
-	// // 说明调用该函数的是服务端，此时需要向客户端确认客户端的 node_id 
-	// if (rdma_trans->node_id == -1)
-	// {
-	// 	int peer_id = mica_ask_nodeID_req(rdma_trans);
-	// 	if (peer_id == -1)
-	// 	{
-	// 		ERROR_LOG("on_cm_established FAIL!, peer_id is -1");
-	// 		exit(0);
-	// 	}
-	// 	rdma_trans->node_id = peer_id;
-	// 	INFO_LOG("MICA server on_cm_established get client id is [%d], success!", rdma_trans->node_id);
-	// }
-	// else
-	// 	INFO_LOG("MICA client on_cm_established success with server [%d]!", rdma_trans->node_id);
+	
 
 	return retval;
 }
@@ -659,14 +581,12 @@ static int on_cm_disconnected(struct rdma_cm_event* event, struct dhmp_transport
 	exit(-1);
 	dhmp_destroy_source(rdma_trans);
 	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_DISCONNECTED;
-	// 新增判断逻辑，分离server 和 client 的trans连接断开
-	// 如果 is_listen 为 true 则表示这个连接是一个监听连接
-	// 如果 is_active 为 true 则表示是服务端主动断开连接
+
 	if(server_instance!=NULL && 
 		!rdma_trans->is_listen &&
 		!rdma_trans->is_active)
 	{
-		// 只有客户端主动断开我们才需要将 server_instance 中的客户端实例从链表中移除
+
 		pthread_mutex_lock(&server_instance->mutex_client_list);
 		--server_instance->cur_connections;
 		list_del(&rdma_trans->client_entry);
@@ -694,63 +614,43 @@ static int on_cm_error(struct rdma_cm_event* event, struct dhmp_transport* rdma_
 	return 0;
 }
 
-// WGT
+
 static int on_cm_rejected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
-	ERROR_LOG("DHMP_TRANSPORT_STATE_REJECT error occur in connecting with server_instance [%d]-th", rdma_trans->node_id);
-	/*
-		注意，不能在这里面销毁trans，因为on_cm_rejected是在：dhmp_event_channel_handler 的 rdma_get_cm_event 循环中
-		如果在这里销毁就会产生未定义的行为，产生错误。
-	*/
-	// free_trans(rdma_trans);
+
 	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_REJECT;
 	return 0;
 }
 
-// WGT
-/*
-	https://linux-rdma.vger.kernel.narkive.com/zqiCL27t/rdma-cm-event-rejected-and-ressources-release
-
-	If the connection is not successful, call the corresponding destroy
-	calls in the the reverse order.
-
-	If the connection is successful, register memory and post the receive
-	calls.
-*/
 int free_trans(struct dhmp_transport* rdma_trans)
 {
-	/*
-		仍然发生内存泄漏的地方： dhmp_context_add_event_fd (dhmp_context.c:71)
-		
-	*/
+	
 	int i;
 	int node_id = rdma_trans->node_id;
 
 	// undo dhmp_transport_create
 	// undo dhmp_memory_register
-	for (i=0; i<PARTITION_NUMS+1; i++)
-	{
-		ibv_dereg_mr(rdma_trans->send_mr[i].mr);
-		if(rdma_trans->send_mr[i].addr)
-			free(rdma_trans->send_mr[i].addr);
+	// for (i=0; i<PARTITION_NUMS+1; i++)
+	// {
+		ibv_dereg_mr(rdma_trans->send_mr.mr);
+		if(rdma_trans->send_mr.addr)
+			free(rdma_trans->send_mr.addr);
 
-		ibv_dereg_mr(rdma_trans->recv_mr[i].mr);
-		if (rdma_trans->recv_mr[i].addr)
-			free(rdma_trans->recv_mr[i].addr);
-	}
+		ibv_dereg_mr(rdma_trans->recv_mr.mr);
+		if (rdma_trans->recv_mr.addr)
+			free(rdma_trans->recv_mr.addr);
+	// }
 
 	// undo on_cm_route_resolved
 	dhmp_qp_release(rdma_trans);
 
 	// undo dhmp_transport_connect
-	// 必须先释放qp，再调用这个函数
 	rdma_destroy_id(rdma_trans->cm_id);
 
 	// rdma_trans->
 	dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->event_channel->fd);
 
 	// undo dhmp_event_channel_create
-	// 必须先销毁与事件通道关联的所有 rdma_cm_id，并且所有返回的事件必须在调用此函数之前被确认。
 	if(rdma_trans->event_channel)
 		rdma_destroy_event_channel(rdma_trans->event_channel);
 
@@ -758,8 +658,8 @@ int free_trans(struct dhmp_transport* rdma_trans)
 	// free(rdma_trans);
 	// rdma_trans = NULL;
 	
-	INFO_LOG("Free rdma_trans with server_instance [%d]-th", node_id);
-	INFO_LOG("rdma_trans state is %d",  rdma_trans->trans_state);
+//	INFO_LOG("Free rdma_trans with server_instance [%d]-th", node_id);
+//	INFO_LOG("rdma_trans state is %d",  rdma_trans->trans_state);
 	return 0;
 }
 
@@ -773,8 +673,8 @@ int dhmp_handle_ec_event(struct rdma_cm_event* event)
 	
 	rdma_trans=(struct dhmp_transport*) event->id->context;
 
-	INFO_LOG("XXXX dhmp_transport cm event [%s],status:[%d], node_id: [%d], is_listen [%d] ",
-	           rdma_event_str(event->event),event->status , rdma_trans->node_id, rdma_trans->is_listen);
+//	INFO_LOG("XXXX dhmp_transport cm event [%s],status:[%d], node_id: [%d], is_listen [%d] ",
+	//           rdma_event_str(event->event),event->status , rdma_trans->node_id, rdma_trans->is_listen);
 
 	switch(event->event)
 	{
@@ -798,7 +698,7 @@ int dhmp_handle_ec_event(struct rdma_cm_event* event)
 			break;
 		// WGT
 		case RDMA_CM_EVENT_REJECTED:
-			ERROR_LOG("occur \"RDMA_CM_EVENT_REJECTED\" error.");
+		//	INFO_LOG("occur \"RDMA_CM_EVENT_REJECTED\" error.");
 			retval=on_cm_rejected(event, rdma_trans);
 			break;
 		case RDMA_CM_EVENT_ADDR_ERROR:
@@ -815,9 +715,7 @@ int dhmp_handle_ec_event(struct rdma_cm_event* event)
 }
 
 
-/*
-	epoll回调函数入口
-*/
+
 void dhmp_event_channel_handler(int fd, void* data)
 {
 	struct rdma_event_channel* ec=(struct rdma_event_channel*) data;
@@ -877,41 +775,63 @@ find_connect_by_socket(struct sockaddr_in *sock)
 	return res_trans;
 }
 
-// 各个节点在 connect_trans 中维护和 server 的连接
-// 由于 connect_trans 代表节点主动发起的连接，所以不需要对 connect_trans 加锁
+
 struct dhmp_transport* 
-find_connect_server_by_nodeID(int node_id)
+find_connect_server_by_nodeID(int node_id, int thread_num)
 {
 	int trans_id = 0;
 	for (trans_id =0; trans_id<DHMP_SERVER_NODE_NUM; trans_id ++)
 	{
-		if (client_mgr->connect_trans[trans_id] != NULL)
+		if (client_mgr->connect_trans[trans_id][thread_num] != NULL)
 		{
-			if (client_mgr->connect_trans[trans_id]->node_id == node_id)
+			if (client_mgr->connect_trans[trans_id][thread_num]->node_id == node_id)
 			{
-				if (client_mgr->connect_trans[node_id]->trans_state == DHMP_TRANSPORT_STATE_CONNECTED)
-					return client_mgr->connect_trans[node_id];
+				if (client_mgr->connect_trans[node_id][thread_num]->trans_state == DHMP_TRANSPORT_STATE_CONNECTED)
+					return client_mgr->connect_trans[node_id][thread_num];
 				else
 				{
-					ERROR_LOG("target node trans [%d] is disconnect!", node_id);
+					ERROR_LOG("target node trans [%d-%d] is disconnect!", node_id,thread_num);
 					return NULL;
 				}
 			}
 		}
 	}
-	ERROR_LOG("target node trans [%d] does not exist!", node_id);
-	Assert(false);
+	ERROR_LOG("target node trans [%d-%d] does not exist!", node_id,thread_num);
 	return NULL;
 }
 
 struct dhmp_transport* 
-find_connect_client_by_nodeID(int node_id)
+find_connect_read_server_by_nodeID(int node_id, int thread_num)
+{
+	int trans_id = 0;
+	for (trans_id =0; trans_id<DHMP_SERVER_NODE_NUM; trans_id ++)
+	{
+		if (client_mgr->read_connect_trans[trans_id][thread_num] != NULL)
+		{
+			if (client_mgr->read_connect_trans[trans_id][thread_num]->node_id == node_id)
+			{
+				if (client_mgr->read_connect_trans[node_id][thread_num]->trans_state == DHMP_TRANSPORT_STATE_CONNECTED)
+					return client_mgr->read_connect_trans[node_id][thread_num];
+				else
+				{
+					ERROR_LOG("target node trans [%d-%d] is disconnect!", node_id,thread_num);
+					return NULL;
+				}
+			}
+		}
+	}
+	ERROR_LOG("target node trans [%d-%d] does not exist!", node_id,thread_num);
+	return NULL;
+}
+
+struct dhmp_transport* 
+find_connect_client_by_nodeID(int node_id, int thread_num)
 {
 	struct dhmp_transport *rdma_trans=NULL, * re_trans = NULL;
 	//pthread_mutex_lock(&server_instance->mutex_client_list);
 	list_for_each_entry(rdma_trans, &server_instance->client_list, client_entry)
 	{
-		if (rdma_trans->node_id == node_id)
+		if (rdma_trans->node_id == node_id && rdma_trans->partition_id == thread_num)
 		{
 			re_trans = rdma_trans;
 			break;
@@ -922,21 +842,6 @@ find_connect_client_by_nodeID(int node_id)
 }
 
 // 返回客户端与头节点的trans
-struct dhmp_transport* 
-dhmp_client_node_select_head()
-{
-	int i = 0;
-	for (i = 0; i < DHMP_SERVER_NODE_NUM; i++)
-	{
-		if (client_mgr->connect_trans[i] != NULL &&
-			client_mgr->connect_trans[i]->trans_state == DHMP_TRANSPORT_STATE_CONNECTED &&
-			client_mgr->connect_trans[i]->node_id == 0 ) // server_id 为 0
-			return client_mgr->connect_trans[i];
-	}
-
-	ERROR_LOG("Can't find MAIN server node id!");
-	return NULL;
-}
 
 int client_find_server_id()
 {
@@ -999,47 +904,3 @@ dhmp_printf_connect_state(enum dhmp_transport_state state)
 			return NULL;
 	}
 }
-
-// // 现在 server 在建立连接的时候，即在函数 on_cm_connect_request 中
-// // 同样需要给 trans 结构体保存对端的 node_id ，但是在建立连接的过程中，
-// // 不太容易传递客户端的 node_id 信息
-// int
-// find_node_id_by_socket(struct sockaddr_in *sock)
-// {
-// 	char cur_ip[INET_ADDRSTRLEN], travers_ip[INET_ADDRSTRLEN];
-// 	struct dhmp_transport *rdma_trans=NULL, *res_trans=NULL;
-// 	struct in_addr in=sock->sin_addr;
-// 	int cur_ip_len,travers_ip_len;
-	
-// 	inet_ntop(AF_INET, &(sock->sin_addr), cur_ip, sizeof(cur_ip));
-// 	cur_ip_len=strlen(cur_ip);
-
-
-// 	pthread_mutex_lock(&server_instance->mutex_client_list);
-
-// 	int server_id = 0;
-// 	for ()
-// 	{
-// 		client_mgr->config.net_infos[peer_node_id].addr
-// 	}
-	
-	
-// 	list_for_each_entry(rdma_trans, &server_instance->client_list, client_entry)
-// 	{
-// 		inet_ntop(AF_INET, &(rdma_trans->peer_addr.sin_addr), travers_ip, sizeof(travers_ip));
-// 		travers_ip_len=strlen(travers_ip);
-		
-// 		if(memcmp(cur_ip, travers_ip, max(cur_ip_len,travers_ip_len))==0)
-// 		{
-// 			if (rdma_trans->peer_addr.sin_port == sock->sin_port)
-// 			{
-// 				INFO_LOG("find the same connection.");
-// 				res_trans=rdma_trans;
-// 				break;
-// 			}
-// 		}
-// 	}
-// 	pthread_mutex_unlock(&server_instance->mutex_client_list);
-
-// 	return res_trans;
-// }

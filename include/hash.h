@@ -88,14 +88,6 @@ static uint64_t mul_hash(const uint8_t *key, size_t len)
 }
 
 // MD4 truncated to 12 B
-#include <openssl/md4.h>
-static uint64_t hash_md4(const uint8_t *key, size_t len)
-{
-    size_t temp_hash[(MD4_DIGEST_LENGTH + sizeof(size_t) - 1) / sizeof(size_t)];
-    MD4(key, len, (uint8_t *)temp_hash);
-    assert(8 <= MD4_DIGEST_LENGTH);
-    return *(size_t *)temp_hash;
-}
 
 static uint64_t hash(const uint8_t *key, size_t len __attribute__((unused)))
 {
@@ -114,7 +106,9 @@ static uint64_t hash(const uint8_t *key, size_t len __attribute__((unused)))
     // uint64_t hash_code = (uint64_t) ((partition_id<<48) |  low_id) ;
     // return hash_code;
     len=0;
-    return *(uint64_t*)key;
+	uint64_t temp = *(uint64_t*)key;
+	//temp = temp << 16;
+    return temp;
     // return CityHash64((const char *)key, len);
 }
 

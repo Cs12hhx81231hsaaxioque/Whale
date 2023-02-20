@@ -21,9 +21,9 @@ endif(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR)
 
 # add support for rdma
 SET(CMAKE_BUILD_TYPE "Debug")  
+
+
 include_directories(/usr/local/include/libxml2/)
-include_directories(/home/rdma_match/xinzh/include)
-link_directories(/home/rdma_match/xinzh/lib)
 
 include_directories(include)
 

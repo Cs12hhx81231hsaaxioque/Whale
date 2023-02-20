@@ -67,6 +67,7 @@ struct dhmp_transport{
 	struct sockaddr_in	local_addr;
 	
 	int node_id;	/* peer node id*/
+	int partition_id;
 	enum dhmp_transport_state trans_state;
 	struct dhmp_context *ctx;
 	struct dhmp_device *device;
@@ -76,8 +77,8 @@ struct dhmp_transport{
 	struct rdma_cm_id	*cm_id;
 
 	/*the var use for two sided RDMA*/
-	struct dhmp_mr send_mr[PARTITION_MAX_NUMS+1];
-	struct dhmp_mr recv_mr[PARTITION_MAX_NUMS+1];
+	struct dhmp_mr send_mr;
+	struct dhmp_mr recv_mr;
 	
 	bool is_poll_qp;
 	struct dhmp_transport *link_trans;
@@ -146,17 +147,19 @@ int dhmp_rdma_write (struct dhmp_transport* rdma_trans,
 						void* local_addr, 
 						size_t length,
 						uintptr_t remote_addr,
-						bool is_imm);
+						bool is_imm,size_t item_offset);
+
 
 int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* local_addr, int length, 
 						off_t offset);
 
 const char *  dhmp_printf_connect_state(enum dhmp_transport_state state);
 int find_node_id_by_socket(struct sockaddr_in *sock);
-struct dhmp_transport*  find_connect_client_by_nodeID(int node_id);
+struct dhmp_transport*  find_connect_client_by_nodeID(int node_id, int thread_num);
 struct dhmp_transport*  find_connect_by_socket(struct sockaddr_in *sock);
-struct dhmp_transport* find_connect_server_by_nodeID(int node_id);
-struct dhmp_transport* dhmp_client_node_select_head();
+struct dhmp_transport* find_connect_server_by_nodeID(int node_id, int thread_num);
+struct dhmp_transport* find_connect_read_server_by_nodeID(int node_id, int thread_num);
+
 extern int client_find_server_id();
 extern int find_next_node(int id);
 
@@ -168,7 +171,6 @@ int dhmp_rdma_write_mica_warpper (struct dhmp_transport* rdma_trans,
 						void* remote_addr,
 						bool is_imm);
 
-int mica_clinet_connect_server(int buffer_size, int target_id);
 
 extern struct timespec start_set_g, end_set_g;
 

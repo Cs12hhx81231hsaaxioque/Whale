@@ -20,4 +20,4 @@ cd build &&
 NDEBUG=no NLOCAL=no NCLIENT=yes NSERVER=yes cmake .. &&
 make &&
 set -x &&
-chown -R gtwang "$TMP_DIR"/bin/*""
+chown -R hdlu "$TMP_DIR"/bin/*""

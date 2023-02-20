@@ -51,7 +51,7 @@ static
 uint64_t
 mehcached_malloc_allocate(struct mehcached_malloc *alloc, uint32_t item_size)
 {
-    void *p = malloc(item_size);
+    void *p = NUMA_MALLOC(item_size);
     if (p == NULL)
         return MEHCACHED_MALLOC_INSUFFICIENT_SPACE;
 

@@ -24,7 +24,6 @@ endif(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR)
 
 # compiler options
 add_definitions(-pthread)
-add_definitions(-g -Wall -Wextra -Wsign-conversion -Winline -Wno-unused-function)
 add_definitions(-Wconversion)
 add_definitions(-O9)
 add_definitions(-msse4.2 -march=corei7)
@@ -54,7 +53,7 @@ set(SOURCES ${SOURCES} shm.c)
 # common libraries
 # set(LIBRARIES ${LIBRARIES} rt crypto perf_count m pthread)
 # 增加中间件所需的 rdma 通信库
-set(LIBRARIES ${LIBRARIES} rt crypto perf_count m pthread middlib xml2 rdmacm ibverbs numa json-c memkind)
+set(LIBRARIES ${LIBRARIES} rt  m pthread middlib xml2 rdmacm ibverbs numa json-c memkind)
 # set(LIBRARIES_cli ${LIBRARIES_cli} rt crypto perf_count m pthread middlib_witout_nic xml2 rdmacm ibverbs numa json-c memkind)
 # tcmalloc (optional)
 #add_definitions(-fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free)
@@ -137,40 +136,3 @@ if(NOT "${NLOCAL}" STREQUAL "yes")
 	# add_executable(netbench_analysis netbench_config.c netbench_analysis.c ${SOURCES})
 	# target_link_libraries(netbench_analysis ${LIBRARIES})
 endif()
-
-# if(NOT "${NCLIENT}" STREQUAL "yes")
-# 	# netbench_client
-# 	add_executable(netbench_client net_common.c netbench_config.c netbench_client.c ${SOURCES})
-# 	target_link_libraries(netbench_client ${LIBRARIES})
-
-# 	# netbench_client_latency
-# 	add_executable(netbench_client_latency net_common.c netbench_config.c netbench_client.c ${SOURCES})
-# 	set_target_properties(netbench_client_latency PROPERTIES COMPILE_FLAGS "-DMEHCACHED_MEASURE_LATENCY")
-# 	target_link_libraries(netbench_client_latency ${LIBRARIES})
-
-# 	# netbench_client_soft_fdir
-# 	add_executable(netbench_client_soft_fdir net_common.c netbench_config.c netbench_client.c ${SOURCES})
-# 	set_target_properties(netbench_client_soft_fdir PROPERTIES COMPILE_FLAGS "-DMEHCACHED_USE_SOFT_FDIR")
-# 	target_link_libraries(netbench_client_soft_fdir ${LIBRARIES})
-# endif()
-
-# if(NOT "${NSERVER}" STREQUAL "yes")
-# 	# netbench_server
-# 	add_executable(netbench_server net_common.c netbench_config.c netbench_server.c ${SOURCES})
-# 	target_link_libraries(netbench_server ${LIBRARIES})
-
-# 	# netbench_server_latency
-# 	add_executable(netbench_server_latency net_common.c netbench_config.c netbench_server.c ${SOURCES})
-# 	set_target_properties(netbench_server_latency PROPERTIES COMPILE_FLAGS "-DMEHCACHED_MEASURE_LATENCY")
-# 	target_link_libraries(netbench_server_latency ${LIBRARIES})
-
-# 	# netbench_server_soft_fdir
-# 	add_executable(netbench_server_soft_fdir net_common.c netbench_config.c netbench_server.c ${SOURCES})
-# 	set_target_properties(netbench_server_soft_fdir PROPERTIES COMPILE_FLAGS "-DMEHCACHED_USE_SOFT_FDIR")
-# 	target_link_libraries(netbench_server_soft_fdir ${LIBRARIES})
-
-# 	# netbench_server_store
-# 	add_executable(netbench_server_store net_common.c netbench_config.c netbench_server.c ${SOURCES})
-# 	set_target_properties(netbench_server_store PROPERTIES COMPILE_FLAGS "-DMEHCACHED_NO_EVICTION")
-# 	target_link_libraries(netbench_server_store ${LIBRARIES})
-# endif()

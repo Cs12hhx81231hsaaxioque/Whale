@@ -21,7 +21,8 @@ struct dhmp_client{
 	struct dhmp_config config;
 	struct list_head dev_list;
 
-	struct dhmp_transport *connect_trans[DHMP_SERVER_NODE_NUM];
+	struct dhmp_transport *connect_trans[DHMP_SERVER_NODE_NUM][PARTITION_MAX_NUMS+1];
+	struct dhmp_transport *read_connect_trans[DHMP_SERVER_NODE_NUM][PARTITION_MAX_NUMS];
 	/*store the dhmp_addr_entry hashtable*/
 
 	//pthread_mutex_t mutex_ht;
@@ -44,7 +45,7 @@ struct dhmp_client{
 	struct list_head work_list;
 	struct list_head work_asyn_list;
 
-	struct dhmp_send_mr* read_mr[DHMP_SERVER_NODE_NUM];
+	struct dhmp_send_mr* read_mr[DHMP_SERVER_NODE_NUM][PARTITION_MAX_NUMS];
 };
 
 extern struct dhmp_client *client_mgr;

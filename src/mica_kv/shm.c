@@ -30,6 +30,7 @@
 #include <rte_debug.h>
 #endif
 
+#include "numa_malloc_header.h"
 #ifdef USE_RDMA
 #include "mica_rdma_common.h"
 #include "table.h"
@@ -55,7 +56,7 @@ static size_t mehcached_shm_used_memory;
 static const char *mehcached_shm_path_prefix = "/home/gtwang/midd_mica/map_files/mehcached_shm_";
 
 struct replica_mappings * next_node_mappings = NULL;
-struct replica_mappings mirror_node_mapping[PARTITION_MAX_NUMS];
+struct replica_mappings mirror_node_mapping[DHMP_SERVER_NODE_NUM][PARTITION_MAX_NUMS];
 
 inline struct ibv_mr*
 return_shm_mr(size_t idx)
@@ -210,6 +211,11 @@ mehcached_shm_find_free_address(size_t size)
 
 	munmap(p, size);
 
+/*
+	 fd = open("/dev/pmem1", O_RDONLY);
+	p = mmap(NULL, size + alignment, PROT_READ, MAP_PRIVATE, fd, 0);
+	close(fd);ERROR_LOG("pmem1 %p",p);
+*/
 	p = (void *)(((size_t)p + (alignment - 1)) & ~(alignment - 1));
 	return p;
 }
@@ -318,7 +324,6 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 	// void * ret_p = malloc(total_alloc_pages);
 	// *bucket_ptr = ret_p;
 	// p=ret_p;
-
 	int ret = posix_memalign(bucket_ptr, mehcached_shm_page_size, total_alloc_pages);
 	if (ret != 0)
 	{
@@ -327,6 +332,11 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 		ERROR_LOG("mmap failed at %p", p);
 		exit(-1);	
 	}
+	p=(*bucket_ptr);
+	free(p);
+	void * pp = NUMA_MALLOC(total_alloc_pages);
+	(*bucket_ptr) = pp;
+
 	p=(*bucket_ptr);
 
 	// 把对齐检查放在 posix_memalign 之后
@@ -356,7 +366,6 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 	}
 
 #ifdef USE_RDMA
-
 	struct dhmp_device * dev = dhmp_get_dev_from_server();
 	struct ibv_mr * mr=ibv_reg_mr(dev->pd, p, total_alloc_pages, 
 									IBV_ACCESS_LOCAL_WRITE|

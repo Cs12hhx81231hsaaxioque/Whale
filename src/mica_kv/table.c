@@ -126,7 +126,8 @@ uint32_t
 mehcached_calc_bucket_index(const struct mehcached_table *table, uint64_t key_hash)
 {
     // 16 is from MEHCACHED_TAG_MASK's log length
-    return (uint32_t)(key_hash >> 16) & table->num_buckets_mask;
+//    return (uint32_t)(key_hash >> 16) & table->num_buckets_mask;
+	return (uint32_t)(key_hash ) & table->num_buckets_mask;
 }
 
 static
@@ -212,6 +213,8 @@ mehcached_lock_bucket(const struct mehcached_table *table MEHCACHED_UNUSED, stru
             // uint64_t new_v = v | 1UL;
             uint32_t new_v = v | 1U;
             // if (__sync_bool_compare_and_swap((volatile uint64_t *)&bucket->version, v, new_v))
+//            bucket->version = new_v;
+// Why lock?
             if (__sync_bool_compare_and_swap((volatile uint32_t *)&bucket->version, v, new_v))
                 break;
         }
@@ -903,7 +906,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
         if (value_length > MEHCACHED_MAX_VALUE_LENGTH)
             value_length = MEHCACHED_MAX_VALUE_LENGTH;  // fix-up for possible garbage read
         
-        Assert(value_length <= MICA_DEFAULT_VALUE_LEN);
+        Assert(value_length <=(size_t) MICA_DEFAULT_VALUE_LEN);
         // 只有副本节点需要等待版本号一致
         if ( !IS_MAIN(server_instance->server_type) && 
              !IS_MIRROR(server_instance->server_type) &&
@@ -1126,6 +1129,8 @@ mehcached_test(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table
     return false;
 }
 
+
+
 // mehcached_set 现在需要返回 value 和 key 所在的
 // mehcached_item 的 mapping id，用于 rdma 的远端写
 struct mehcached_item *
@@ -1133,6 +1138,7 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
                 const uint8_t *key, size_t key_length, const uint8_t *value, size_t value_length,\
                 uint32_t expire_time, bool overwrite, bool *is_update, bool* is_maintable, struct mehcached_item * main_item)
 {
+
     Assert(key_length <= MEHCACHED_MAX_KEY_LENGTH);
     Assert(value_length <= MEHCACHED_MAX_VALUE_LENGTH);
 
@@ -1143,17 +1149,14 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
      * 我们通过将其设为 1 来避免使用零 tag ，因为我们使用零值来指示空索引条目。 通过向索引条目写入零值来删除项目； 日志中的条目将被自动垃圾收集。
      */
     uint16_t tag = mehcached_calc_tag(key_hash);
-
     struct mehcached_bucket *bucket = table->buckets + bucket_index;
 
     bool overwriting;
 
     mehcached_lock_bucket(table, bucket);
-
     struct mehcached_bucket *located_bucket;
     // 所有存在的 key 一定存在在 main_table中，所以只需要查找 main_table 即可
     size_t item_index = mehcached_find_item_index_warpper(table, bucket, key_hash, tag, key, key_length, &located_bucket);
-
     // 当前被插入的 key 以及存在于 hash 表中
     if (item_index != MEHCACHED_ITEMS_PER_BUCKET)
     {
@@ -1317,6 +1320,7 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
     mehcached_pool_unlock(&table->alloc[current_alloc_id]);
 #endif
 
+
     if (located_bucket->item_vec[item_index] != 0)
     {
         MEHCACHED_STAT_INC(table, set_evicted);
@@ -1350,7 +1354,6 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
 #endif
 
     MEHCACHED_STAT_INC(table, count);
-
     return new_item;
 }
 
@@ -1677,7 +1680,7 @@ mehcached_table_init(struct mehcached_table *table, size_t num_buckets, size_t n
 #endif
     INFO_LOG("num_buckets = %u", table->num_buckets);
     INFO_LOG("num_extra_buckets = %u", table->num_extra_buckets);
-    INFO_LOG("pool_size = %zu", pool_size);
+    INFO_LOG("pool_size = %zu %p", pool_size,pool_size);
 
     INFO_LOG("");
 }

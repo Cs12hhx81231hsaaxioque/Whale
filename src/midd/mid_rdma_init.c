@@ -62,7 +62,7 @@ init_read_mr(int buffer_size, struct ibv_pd* pd)
 
 
 struct dhmp_transport * 
-dhmp_connect(int peer_node_id)
+dhmp_connect(int peer_node_id, int thread_num)
 {
 	struct dhmp_transport * conn = NULL;
 	INFO_LOG("create the [%d]-th normal transport.",peer_node_id);
@@ -70,7 +70,7 @@ dhmp_connect(int peer_node_id)
 	while(1)
 	{
 		conn = dhmp_transport_create(&client_mgr->ctx, 
-								dhmp_get_dev_from_client(),		/* device 这里需要考虑下多个节点的情况吗？ 我认为不用，因为一个node只有一个RDMA设备*/
+								dhmp_get_dev_from_client(),		
 								false,
 								false,
 								peer_node_id);
@@ -80,13 +80,10 @@ dhmp_connect(int peer_node_id)
 			return NULL;
 		}
 
+		INFO_LOG("Try to connect %s - %d",client_mgr->config.net_infos[peer_node_id].addr, client_mgr->config.net_infos[peer_node_id].port);
 		dhmp_transport_connect(conn,
 								client_mgr->config.net_infos[peer_node_id].addr,
-								client_mgr->config.net_infos[peer_node_id].port);
-
-		/* main thread sleep a while, wait dhmp_event_channel_handler finish connection*/
-		// sleep(1);
-		// sleep_ms(100);
+								client_mgr->config.net_infos[peer_node_id].port );
 
 		while(conn->trans_state < DHMP_TRANSPORT_STATE_CONNECTED)
 			sleep_ms(100);
@@ -104,23 +101,17 @@ dhmp_connect(int peer_node_id)
 		else if(conn->trans_state == DHMP_TRANSPORT_STATE_CONNECTED )
 		{
 			conn->is_active = true;
-			// struct ibv_port_attr port_info;
-			// int re = ibv_query_port(dhmp_get_dev_from_client()->verbs, ntohs(rdma_get_src_port(conn->cm_id)), &port_info);
-			// if (re == -1)
-			// 	ERROR_LOG("retrieves ibv_query_port error!");
-			// else
-			// 	INFO_LOG("Client port [%u] max message legnth is [%u].",ntohs(rdma_get_src_port(conn->cm_id)), port_info.max_msg_sz);
 			break;
 		}
 	}
 
-	DEBUG_LOG("CONNECT finished: Peer Server %d has been connnected!", peer_node_id);
+	DEBUG_LOG("CONNECT finished: Peer Server %d-%d has been connnected!", peer_node_id, thread_num);
 	return conn;
 }
 
 struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 {
-	int i;
+	int i,j;
 	int re = 0;
 	struct dhmp_device * cli_pd;
 
@@ -135,13 +126,13 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 
 	if (!is_mica_cli)
 	{
-		// 我们这里直接使用 server 创建的 config 结构体，而不是自己去初始化
+
 		memcpy(&client_mgr->config, &server_instance->config, sizeof(struct dhmp_config));
 		
 	}
 	else
 	{
-		// 是 mica 客户端则正常初始化
+
 		dhmp_config_init(&client_mgr->config, true);
 	}
 
@@ -166,64 +157,97 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 
 	/*init normal connection*/
 	memset(client_mgr->connect_trans, 0, DHMP_SERVER_NODE_NUM*
-										sizeof(struct dhmp_transport*));
+										sizeof(struct dhmp_transport*) * PARTITION_MAX_NUMS);
 
-	// 客户端主动和主节点建立连接 
+
 	if (!is_mica_cli)
 	{
 		if(IS_MAIN(server_instance->server_type))
 		{
-			// 头节点需要主动和所有的node建立rdma连接，所有的node都是头节点的server
+			
 			for(i=0; i<client_mgr->config.nets_cnt; i++)
 			{
-				/*server_instance skip himself to avoid connecting himself*/
-				if(server_instance->server_id == i)
+				for(j = 0;j < PARTITION_NUMS;j++)
 				{
-					client_mgr->self_node_id = i;
-					client_mgr->connect_trans[i] = NULL;
-					continue;
-				}
+					/*server_instance skip himself to avoid connecting himself*/
+					if(server_instance->server_id == i)
+					{
+						client_mgr->self_node_id = i;
+						client_mgr->connect_trans[i][j] = NULL;
+						continue;
+					}
 
-				INFO_LOG("CONNECT BEGIN: create the [%d]-th normal transport.",i);
-				client_mgr->connect_trans[i] = dhmp_connect(i);
-				if(!client_mgr->connect_trans[i])
-				{
-					ERROR_LOG("create the [%d]-th transport error.",i);
-					continue;
+					client_mgr->connect_trans[i][j] = dhmp_connect(i,j);
+				//		INFO_LOG("CONNECT BEGIN: create the [%d-%d]-th normal transport %p.",i,j,client_mgr->connect_trans[i][j] );
+					if(!client_mgr->connect_trans[i][j])
+					{
+						ERROR_LOG("create the [%d]-th transport error.",i);
+						continue;
+					}
+					client_mgr->connect_trans[i][j]->is_active = true;
+					client_mgr->connect_trans[i][j]->node_id = i;
+					client_mgr->read_mr[i][j] = init_read_mr(buffer_size, client_mgr->connect_trans[i][j]->device->pd);
 				}
-				client_mgr->connect_trans[i]->is_active = true;
-				client_mgr->connect_trans[i]->node_id = i;
-				client_mgr->read_mr[i] = init_read_mr(buffer_size, client_mgr->connect_trans[i]->device->pd);
 			}
+
+			for(i=1; i<client_mgr->config.nets_cnt; i++)
+			{
+				for(j = 0;j < PARTITION_NUMS;j++)
+				{
+					/*server_instance skip himself to avoid connecting himself*/
+					if(server_instance->server_id == i)
+					{
+						client_mgr->read_connect_trans[i][j] = NULL;
+						continue;
+					}
+
+					client_mgr->read_connect_trans[i][j] = dhmp_connect(i,j);
+					if(!client_mgr->read_connect_trans[i][j])
+					{
+						ERROR_LOG("create the [%d]-th transport error.",i);
+						continue;
+					}
+					client_mgr->read_connect_trans[i][j]->is_active = true;
+					client_mgr->read_connect_trans[i][j]->node_id = i;
+				}
+			}
+			
 		}
 
-		// 排除集群中只有一个副本节点的情况
-		if(IS_REPLICA(server_instance->server_type) && 
-				server_instance->node_nums > 3 &&
+
+		if((IS_MAIN(server_instance->server_type) || IS_REPLICA(server_instance->server_type)) && 
+				REPLICA_NODE_NUMS > 0 &&
 				server_instance->server_id != server_instance->node_nums-1)
 		{
-			// 中间节点需要主动和下游节点建立rdma连接，只有下游节点是中间节点的server
-			int next_id = server_instance->server_id+1;
-			client_mgr->connect_trans[next_id] = dhmp_connect(next_id);
+			if(IS_REPLICA(server_instance->server_type))
+			sleep(7);
 
-			if(!client_mgr->connect_trans[next_id]){
-				ERROR_LOG("create the [%d]-th transport error.",next_id);
-				exit(0);
+			for(j = 0;j <1;j++)
+			{
+				int next_id = server_instance->server_id+1;
+				if(IS_MAIN(server_instance->server_type))
+				{
+					j = PARTITION_MAX_NUMS;
+					next_id = REPLICA_NODE_HEAD_ID;
+				}
+				client_mgr->connect_trans[next_id][j] = dhmp_connect(next_id,j);
+
+				if(!client_mgr->connect_trans[next_id][j]){
+					ERROR_LOG("create the [%d]-th transport error.",next_id);
+					exit(0);
+				}
+
+				client_mgr->connect_trans[next_id][j]->is_active = true;
+				client_mgr->connect_trans[next_id][j]->node_id = next_id;
+				client_mgr->read_mr[next_id][j] = init_read_mr(buffer_size, client_mgr->connect_trans[next_id][j]->device->pd);	
 			}
-
-			client_mgr->connect_trans[next_id]->is_active = true;
-			client_mgr->connect_trans[next_id]->node_id = next_id;
-			client_mgr->read_mr[next_id] = init_read_mr(buffer_size, client_mgr->connect_trans[next_id]->device->pd);	
 		}
 	}
 
 	cpu_set_t cpuset;
 	pthread_t cq_thread;
 	CPU_ZERO(&cpuset);
-	if (SERVER_ID < 4)
 		CPU_SET(PARTITION_NUMS+1, &cpuset);
-	else
-		CPU_SET(PARTITION_NUMS+1+20, &cpuset);
 	re=pthread_create(&cq_thread, NULL, busy_wait_cq_handler, NULL);
 	if(re)
 		handle_error_en(re, "pthread_setaffinity_np");
@@ -232,7 +256,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 		handle_error_en(re, "pthread_setaffinity_np");
 	cq_thread_stop_flag = false;
 
-	/* 初始化client段全局对象 */
+
 	// global_verbs_send_mr = (struct dhmp_send_mr* )malloc(sizeof(struct dhmp_send_mr));
 
 	/*init the structure about work thread*/
@@ -271,8 +295,8 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 	server_instance->node_nums = server_instance->config.nets_cnt;
 	Assert((server_id != ((size_t) -1) && server_id < server_instance->node_nums));
 
-	// 所有的主节点都需要拥有多线程能力
-	init_mulit_server_work_thread();
+
+//	init_mulit_server_work_thread();
 
 	/*init client transport list*/
 	server_instance->cur_connections=0;
@@ -283,6 +307,9 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 	INIT_LIST_HEAD(&server_instance->dev_list);
 	dhmp_dev_list_init(&server_instance->dev_list);
 
+
+	//for(i = 0; i < PARTITION_NUMS; i++)
+	{
 	server_instance->listen_trans=dhmp_transport_create(&server_instance->ctx,
 											dhmp_get_dev_from_server(),
 											true, false, -2);
@@ -291,8 +318,7 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 		ERROR_LOG("create rdma transport error.");
 		exit(-1);
 	}
-
-	// TODO：从外部命令行输入节点ID，不需要使用循环争抢节点ID
+//	server_instance->listen_trans[i]->partition_id = i;
 	while (1)
 	{
 		err=dhmp_transport_listen(server_instance->listen_trans,
@@ -311,22 +337,22 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 			// 			server_instance->config.nets_cnt);
 			// }
 
-			if (server_instance->server_id == 0)
+			if (server_instance->server_id == MAIN_NODE_ID)
 				SET_MAIN(server_instance->server_type);
-			else if (server_instance->server_id == 1)
+			else if (server_instance->server_id < REPLICA_NODE_HEAD_ID)
 				SET_MIRROR(server_instance->server_type);
 			else
 				SET_REPLICA(server_instance->server_type);
 			
 			// 尾节点单独 set 标志位
-			if (server_instance->server_id == server_instance->node_nums - 1)
+			if (server_instance->server_id == REPLICA_NODE_TAIL_ID && REPLICA_NODE_NUMS > 0)
 			{
 				SET_TAIL(server_instance->server_type);
 				INFO_LOG("Tail Node server_id is [%d] ", server_instance->server_id);
 			}
 			
 			// 非主节点的头副本节点
-			if (server_instance->server_id == 2)
+			if (server_instance->server_id == REPLICA_NODE_HEAD_ID)
 				SET_HEAD(server_instance->server_type);
 
 			MID_LOG("Server's node id is [%d], node_nums is [%d], server_type is %d", \
@@ -339,7 +365,7 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 			dhmp_set_curnode_id ( &server_instance->config, is_ubuntu);
 		}
 	}
-
+}
 	// 输出 rdma 设备信息
 	phys_port_cnt = dhmp_get_dev_from_server()->device_attr.phys_port_cnt;
 	INFO_LOG("server total phys_port_cnt is [%d].", phys_port_cnt);
@@ -358,36 +384,15 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 	return server_instance;
 }
 
-int mica_clinet_connect_server(int buffer_size, int target_id)
-{
-	// 目前测试客户端只与主节点连接
-	int idx = client_mgr->conn_index;
-	INFO_LOG("CONNECT BEGIN: create the [%d]-th normal transport.",target_id);
-	client_mgr->connect_trans[idx] = dhmp_connect(target_id);	// 目前测试客户端只与主节点连接
-	if(!client_mgr->connect_trans[idx])
-	{
-		ERROR_LOG("create the [%d]-th transport error.",target_id);
-		return -1;
-	}
-	client_mgr->connect_trans[idx]->is_active = true;
-	client_mgr->connect_trans[idx]->node_id = target_id;
-	client_mgr->read_mr[idx] = init_read_mr(buffer_size, client_mgr->connect_trans[idx]->device->pd);
-	client_mgr->conn_index++;
-	Assert(client_mgr->conn_index < DHMP_SERVER_NODE_NUM);
-	return 1;
-}
+
+
 
 void dhmp_server_destroy()
 {
 	INFO_LOG("server_instance destroy start.");
 	pthread_join(server_instance->ctx.epoll_thread, NULL);
 	int err = 0;
-	// err = memkind_destroy_kind(pmem_kind);
-    //     if(err)
-    //     {
-    //             ERROR_LOG("memkind_destroy_kind() error.");
-    //             return;
-    //     }
+
 		
 	INFO_LOG("server_instance destroy end.");
 	free(server_instance);

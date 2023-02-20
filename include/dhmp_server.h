@@ -35,7 +35,6 @@ struct dhmp_server{
 	// struct dhmp_area * send_area;
 };
 
-extern struct dhmp_server *server_instance;
 
 struct dhmp_device *dhmp_get_dev_from_server();
 struct dhmp_device *dhmp_get_dev_from_client();

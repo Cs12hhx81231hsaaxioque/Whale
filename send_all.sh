@@ -15,13 +15,18 @@
 
 # scp -r ../LineKV/src  gtwang@node24:/home/gtwang/LineKV/          2>/dev/null    &&
 # scp -r ../LineKV/include  gtwang@node24:/home/gtwang/LineKV/  2>/dev/null   &&
-scp -r ../LineKV/  gtwang@node20:/home/gtwang/  2>/dev/null   
-scp -r ../LineKV/  gtwang@node22:/home/gtwang/  2>/dev/null   
-scp -r ../LineKV/  gtwang@node24:/home/gtwang/  2>/dev/null  
 
 
-scp  ./config.xml gtwang@node24:/home/gtwang/LineKV/config.xml
-scp  ./config.xml gtwang@node22:/home/gtwang/LineKV/config.xml
-scp  ./config.xml gtwang@node20:/home/gtwang/LineKV/config.xml
-scp  ./bin/mica  gtwang@node24:/home/gtwang/LineKV 
-scp  ./bin/test_RTT  gtwang@node24:/home/gtwang/LineKV
+scp -r ../LineKV/  hdlu@node20:/home/hdlu/  2>/dev/null   
+scp -r ../LineKV/  hdlu@node22:/home/hdlu/  2>/dev/null   
+scp -r ../LineKV/  hdlu@node24:/home/hdlu/  2>/dev/null
+#scp -r ../LineKV/  hdlu@node13:/home/hdlu/  2>/dev/null  
+
+
+#scp  ./config.xml hdlu@node24:/home/hdlu/LineKV/config.xml
+
+#scp  ./config.xml hdlu@node22:/home/hdlu/LineKV/config.xml
+#scp  ./config.xml hdlu@node20:/home/hdlu/LineKV/config.xml
+
+#scp  ./bin/mica  hdlu@node24:/home/hdlu/LineKV 
+#scp  ./bin/test_RTT  hdlu@node24:/home/hdlu/LineKV
